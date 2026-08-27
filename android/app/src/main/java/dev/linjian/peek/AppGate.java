@@ -281,9 +281,12 @@ public class AppGate {
                 if (AppPrefs.isEnhancedPrivacy(ctx) && svc != null) svc.doHome();
                 else log(ctx, "门禁 strict：low privacy fallback（不调用无障碍回桌面）");
             }
-            if (canDrawOverlay(ctx)) showOverlayLock(ctx, pkg, lock);
-            else showLockActivity(ctx, pkg);
-            log(ctx, "门禁拦截：" + lock.optString("app_name", pkg) + (canDrawOverlay(ctx) ? "（悬浮层）" : ""));
+            if (showLockActivity(ctx, pkg)) {
+                log(ctx, "门禁拦截：" + lock.optString("app_name", pkg) + "（不透明锁定页）");
+            } else if (canDrawOverlay(ctx)) {
+                showOverlayLock(ctx, pkg, lock);
+                log(ctx, "门禁拦截：" + lock.optString("app_name", pkg) + "（不透明悬浮兜底）");
+            }
             ActivityEventStore.recordPhone(ctx, "screen_break_trigger", "应用门禁触发", lock.optString("app_name", pkg));
         } catch (Exception e) { DebugState.append(ctx, "门禁检查异常：" + ScreenshotService.shortMsg(e)); }
     }
@@ -293,13 +296,17 @@ public class AppGate {
         catch (Exception e) { return false; }
     }
 
-    private static void showLockActivity(Context ctx, String pkg) {
+    private static boolean showLockActivity(Context ctx, String pkg) {
         try {
             Intent i = new Intent(ctx, LockActivity.class);
             i.putExtra("package", pkg);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             ctx.startActivity(i);
-        } catch (Exception e) { DebugState.append(ctx, "门禁启动锁定页失败：" + ScreenshotService.shortMsg(e)); }
+            return true;
+        } catch (Exception e) {
+            DebugState.append(ctx, "门禁启动锁定页失败：" + ScreenshotService.shortMsg(e));
+            return false;
+        }
     }
 
     private static void showOverlayLock(final Context ctx, final String pkg, final JSONObject lock) {
@@ -313,10 +320,9 @@ public class AppGate {
                 LinearLayout root = new LinearLayout(app);
                 root.setOrientation(LinearLayout.VERTICAL);
                 root.setGravity(Gravity.CENTER);
-                root.setPadding(dp(ctx, 22), dp(ctx, 22), dp(ctx, 22), dp(ctx, 22));
-                GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xFFFDF6F8, 0xFFEAF6F1});
-                bg.setCornerRadius(dp(ctx, 24));
-                bg.setStroke(dp(ctx, 1), 0x66B8A8D8);
+                root.setPadding(dp(ctx, 28), dp(ctx, 36), dp(ctx, 28), dp(ctx, 36));
+                GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xFFFFF7FA, 0xFFEAF6F1});
+                bg.setCornerRadius(0);
                 root.setBackground(bg);
 
                 TextView title = new TextView(app);
@@ -370,12 +376,11 @@ public class AppGate {
                 int type = Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
                 WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                         WindowManager.LayoutParams.MATCH_PARENT,
-                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams.MATCH_PARENT,
                         type,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                        PixelFormat.TRANSLUCENT);
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                        PixelFormat.OPAQUE);
                 lp.gravity = Gravity.CENTER;
-                lp.width = Math.max(dp(ctx, 280), app.getResources().getDisplayMetrics().widthPixels - dp(ctx, 34));
                 wm.addView(root, lp);
                 overlayView = root;
                 overlayWindowManager = wm;

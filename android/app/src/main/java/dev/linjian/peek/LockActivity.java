@@ -4,12 +4,14 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.MotionEvent;
 import android.widget.Button;
@@ -32,6 +34,10 @@ public class LockActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        getWindow().setBackgroundDrawable(new ColorDrawable(0xFFFFF5F8));
+        getWindow().setStatusBarColor(0xFFFFF5F8);
+        getWindow().setNavigationBarColor(0xFFFFF5F8);
+        setFinishOnTouchOutside(false);
         pkg = getIntent() == null ? "" : getIntent().getStringExtra("package");
         if (pkg == null) pkg = "";
         buildUi();
@@ -109,7 +115,7 @@ public class LockActivity extends Activity {
         actions.addView(request, lp(dp(116), dp(40), 0, 0, 5, 0));
 
         Button home = button("返回桌面", false);
-        home.setOnClickListener(v -> { ScreenshotService svc = ScreenshotService.getInstance(); if (svc != null) svc.doHome(); finish(); });
+        home.setOnClickListener(v -> goHomeAndFinishIfAllowed());
         actions.addView(home, lp(dp(104), dp(40), 5, 0, 0, 0));
         root.addView(actions, lp(-1, dp(40), 0, 0, 0, 11));
 
@@ -147,6 +153,42 @@ public class LockActivity extends Activity {
         messageView.setText(AppPrefs.companionName(this) + "说" + (message.isEmpty() ? "" : "\n" + message));
         reasonView.setVisibility(reason.isEmpty() ? View.GONE : View.VISIBLE);
         messageView.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+
+    @Override public void onBackPressed() {
+        if (AppGate.currentLock(this, pkg) != null) {
+            Toast.makeText(this, "锁定期间不能返回受锁应用", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && AppGate.currentLock(this, pkg) != null) {
+            Toast.makeText(this, "锁定期间不能返回受锁应用", Toast.LENGTH_SHORT).show();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private void goHomeAndFinishIfAllowed() {
+        boolean enhancedHome = false;
+        ScreenshotService svc = ScreenshotService.getInstance();
+        if (AppPrefs.isEnhancedPrivacy(this) && svc != null) enhancedHome = svc.doHome();
+        if (enhancedHome) {
+            finish();
+            return;
+        }
+        if (!enhancedHome) {
+            try {
+                Intent home = new Intent(Intent.ACTION_MAIN);
+                home.addCategory(Intent.CATEGORY_HOME);
+                home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(home);
+            } catch (Exception e) {
+                DebugState.append(this, "门禁回桌面失败：" + ScreenshotService.shortMsg(e));
+            }
+        }
     }
 
     private void showEmergencyDialog() {
