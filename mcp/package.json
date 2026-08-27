@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Public MCP server for 掌心窗: screenshot, guard tools, configurable app control, active care, and visit timestamps.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node auth-proxy.js"
   },
   "engines": {
     "node": ">=20"
