@@ -50,7 +50,7 @@ public class CompanionService extends Service {
         if (intent != null && "STOP".equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
         createNotificationChannel();
         NowState.start(this);
-        startForeground(NOTIFICATION_ID, buildNotification("已启动，等待掌心窗命令"));
+        startForeground(NOTIFICATION_ID, buildNotification("低权限状态同步运行中"));
         if (intent != null) {
             serverUrl = ScreenshotService.normalizeUrl(intent.getStringExtra("server_url"));
             token = intent.getStringExtra("token");
@@ -63,7 +63,7 @@ public class CompanionService extends Service {
             DebugState.append(this, "服务启动失败：服务器地址或 Token 为空");
             stopSelf(); return START_NOT_STICKY;
         }
-        DebugState.append(this, "掌心窗公开版 v0.3.7.2 服务已启动，目标：" + serverUrl);
+        DebugState.append(this, "掌心窗服务已启动：隐私模式=" + AppPrefs.privacyMode(this));
         if (!running) { running = true; startPolling(); } else DebugState.append(this, "服务已在运行，继续轮询");
         return START_STICKY;
     }
@@ -81,6 +81,7 @@ public class CompanionService extends Service {
         long now = System.currentTimeMillis();
         long delay = AppPrefs.interval(this);
         try {
+            LifeState.recordForegroundFromUsage(this);
             uploadStateThrottled(serverUrl, token, this, false);
             if (rateLimitedUntilMs > now) {
                 delay = Math.max(delay, rateLimitedUntilMs - now);
@@ -258,6 +259,10 @@ public class CompanionService extends Service {
         JSONObject out = new JSONObject();
         boolean ok = false; String result = "";
         try {
+            if (AppPrefs.isLowPrivacy(ctx) && requiresEnhancedPrivacy(action)) {
+                out.put("ok", false); out.put("action", action); out.put("result", "enhanced_privacy_mode_required");
+                return out;
+            }
             ScreenshotService svc = ScreenshotService.getInstance();
             if ("wait".equals(action)) { ok = true; result = "wait";
             } else if ("get_life_state".equals(action)) { ok = true; result = LifeState.collect(ctx).toString();
@@ -292,6 +297,14 @@ public class CompanionService extends Service {
         } catch (Exception e) { result = ScreenshotService.shortMsg(e); }
         try { out.put("ok", ok); out.put("action", action); out.put("result", result); } catch (Exception ignored) { }
         return out;
+    }
+
+    private static boolean requiresEnhancedPrivacy(String action) {
+        return "get_screen_nodes".equals(action) || "tap_text".equals(action) || "input_text".equals(action)
+                || "peek".equals(action) || "home".equals(action) || "back".equals(action) || "recents".equals(action)
+                || "screen_off".equals(action) || "turn_screen_off".equals(action) || "lock_screen".equals(action)
+                || "phone_screen_off".equals(action) || "tap".equals(action) || "swipe".equals(action)
+                || "open_app".equals(action) || isAppGateAction(action);
     }
 
     private static void executeSequence(Context ctx, String id, JSONObject cmd, String serverUrl, String token) {
@@ -337,7 +350,7 @@ public class CompanionService extends Service {
                 if (expect.length() > 0) {
                     String expectedPkg = AppPrefs.packageForApp(ctx, expect);
                     if (expectedPkg.length() == 0 && AppPrefs.isPackageLike(expect)) expectedPkg = expect;
-                    String current = ScreenshotService.currentPackage();
+                    String current = LifeState.collect(ctx).optString("current_package", "");
                     boolean expectMatch = current != null && current.equals(expectedPkg);
                     r.put("expect_app", expect);
                     r.put("expected_package", expectedPkg);
@@ -363,7 +376,7 @@ public class CompanionService extends Service {
             finalReport.put("ok", allOk);
             finalReport.put("executed", executed);
             finalReport.put("total", count);
-            finalReport.put("current_package", ScreenshotService.currentPackage());
+            finalReport.put("current_package", LifeState.collect(ctx).optString("current_package", ""));
             finalReport.put("steps", report);
         } catch (Exception ignored) { }
         DebugState.append(ctx, "动作序列结束：" + (allOk ? "全部成功" : "有步骤失败") + "，执行 " + executed + "/" + count);
@@ -493,7 +506,7 @@ public class CompanionService extends Service {
         return new String(bos.toByteArray(), "UTF-8");
     }
 
-    private void createNotificationChannel() { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { NotificationManager nm = getSystemService(NotificationManager.class); NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "掌心窗", NotificationManager.IMPORTANCE_LOW); channel.setDescription("掌心窗正在等待你授权的截图与手机动作请求"); nm.createNotificationChannel(channel); NotificationChannel reminder = new NotificationChannel(REMINDER_CHANNEL_ID, "掌心窗悬浮横幅提醒", NotificationManager.IMPORTANCE_HIGH); reminder.setDescription("来自掌心窗的悬浮横幅、生活提醒与回家模式"); reminder.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC); reminder.enableVibration(true); nm.createNotificationChannel(reminder); } }
+    private void createNotificationChannel() { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { NotificationManager nm = getSystemService(NotificationManager.class); NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "掌心窗", NotificationManager.IMPORTANCE_LOW); channel.setDescription("掌心窗正在同步低权限设备状态"); nm.createNotificationChannel(channel); NotificationChannel reminder = new NotificationChannel(REMINDER_CHANNEL_ID, "掌心窗悬浮横幅提醒", NotificationManager.IMPORTANCE_HIGH); reminder.setDescription("来自掌心窗的悬浮横幅与生活提醒"); reminder.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC); reminder.enableVibration(true); nm.createNotificationChannel(reminder); } }
     private Notification buildNotification(String text) { Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this); return builder.setContentTitle("掌心窗运行中").setContentText(text).setSmallIcon(android.R.drawable.ic_menu_view).setOngoing(true).build(); }
     @Override public void onDestroy() { running = false; DebugState.append(this, "服务已销毁/停止"); if (pollThread != null) pollThread.quitSafely(); super.onDestroy(); }
 }

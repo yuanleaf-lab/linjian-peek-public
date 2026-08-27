@@ -2,14 +2,12 @@ package dev.linjian.peek;
 
 import android.app.AppOpsManager;
 import android.app.usage.UsageEvents;
-import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -17,294 +15,88 @@ import android.os.BatteryManager;
 import android.os.Build;
 import android.os.PowerManager;
 import android.os.Process;
-
-import org.json.JSONArray;
 import org.json.JSONObject;
-
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
 
-/** 轻量生活状态层：不截图，不读聊天内容，只上传设备状态。 */
-public class LifeState {
+/** Low-privacy device state. It intentionally contains no page, node, location or sensor data. */
+public final class LifeState {
+    private LifeState() { }
+
     public static JSONObject collect(Context ctx) {
         JSONObject state = new JSONObject();
         try {
             long now = System.currentTimeMillis();
             Intent battery = ctx.registerReceiver((BroadcastReceiver) null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-            int batteryPercent = -1;
-            boolean charging = false;
-            String chargingType = "unknown";
+            int batteryPercent = -1; boolean charging = false; String chargingType = "unknown", batteryStatus = "unknown";
             if (battery != null) {
-                int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-                int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1), scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
                 if (level >= 0 && scale > 0) batteryPercent = Math.round(level * 100f / scale);
                 int status = battery.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
                 charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL;
-                int plugged = battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0);
-                chargingType = pluggedToString(plugged);
-                state.put("battery_status", batteryStatusToString(status));
+                chargingType = pluggedToString(battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)); batteryStatus = batteryStatusToString(status);
             }
-
             PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
             boolean screenOn = pm != null && (Build.VERSION.SDK_INT >= 20 ? pm.isInteractive() : pm.isScreenOn());
-            String currentPackage = ScreenshotService.currentPackage();
-            String currentApp = appLabel(ctx, currentPackage);
             boolean usageReady = hasUsagePermission(ctx);
-            UsageSummary usage = usageReady ? readUsage(ctx, now) : new UsageSummary();
-            NowState.start(ctx);
-            JSONObject nowState = NowState.collect(ctx);
-            SharedPreferencesCompat prefs = new SharedPreferencesCompat(ctx);
-
-            state.put("device_id", AppPrefs.device(ctx));
-            state.put("life_state_version", "0.3.7.2");
-            state.put("local_time", formatLocal(now, "HH:mm"));
-            state.put("local_date", formatLocal(now, "yyyy-MM-dd"));
-            state.put("timezone", TimeZone.getDefault().getID());
-            state.put("updated_at_ms", now);
-            state.put("updated_at_local", formatLocal(now, "yyyy-MM-dd HH:mm:ss"));
-            state.put("battery_percent", batteryPercent);
-            state.put("charging", charging);
-            state.put("charging_type", chargingType);
-            state.put("network_type", networkType(ctx));
-            state.put("screen_on", screenOn);
-            state.put("current_package", currentPackage);
-            state.put("current_app", currentApp);
-            state.put("accessibility_ready", ScreenshotService.ready());
-            state.put("usage_permission_ready", usageReady);
-            state.put("screen_time_today_minutes", usage.screenTimeMinutes);
-            state.put("unlock_count_today", usage.unlockCount);
-            state.put("last_unlock_at", usage.lastUnlockAt <= 0 ? "" : formatIsoLocal(usage.lastUnlockAt));
-            state.put("top_apps_today", usage.topApps);
-            state.put("city", prefs.city());
-            state.put("weather_note", prefs.weatherNote());
-            JSONObject weatherState = WeatherState.collect(ctx);
-            state.put("weather_state", weatherState);
-            state.put("weather_locations", weatherState.optJSONArray("locations"));
-            state.put("current_weather_location", weatherState.optJSONObject("current"));
-            state.put("screen_text", ScreenshotService.screenText());
-            state.put("active_reminders", ActiveReminder.config(ctx));
-            state.put("home_mode", HomeMode.config(ctx));
-            state.put("known_apps", AppPrefs.knownAppsJson(ctx));
-            state.put("app_gate", AppGate.config(ctx));
-            state.put("cycle_state", CycleState.collect(ctx));
-            state.put("calendar_state", CalendarState.collect(ctx));
-            state.put("guidian_state", GuidianState.config(ctx));
-            state.put("now_state", nowState);
-            state.put("current_state", nowState);
-            state.put("summary", makeSummary(batteryPercent, charging, currentApp, usage.screenTimeMinutes, usage.unlockCount, usageReady));
-        } catch (Exception e) {
-            try { state.put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
-        }
+            UsageSnapshot usage = usageReady ? readUsage(ctx, now) : new UsageSnapshot();
+            CurrentApp current = usageReady ? currentApp(ctx, now) : new CurrentApp();
+            state.put("device_id", AppPrefs.device(ctx)); state.put("privacy_mode", AppPrefs.privacyMode(ctx)); state.put("life_state_version", AppPrefs.APP_VERSION_NAME);
+            state.put("updated_at_ms", now); state.put("local_date", format(now, "yyyy-MM-dd")); state.put("local_time", format(now, "HH:mm")); state.put("timezone", TimeZone.getDefault().getID());
+            state.put("battery_percent", batteryPercent); state.put("battery_status", batteryStatus); state.put("charging", charging); state.put("charging_type", chargingType);
+            state.put("screen_on", screenOn); state.put("network_type", networkType(ctx)); state.put("usage_permission_ready", usageReady);
+            state.put("current_package", current.packageName); state.put("current_app", current.appName); state.put("current_app_authorized", usageReady);
+            state.put("screen_time_today_minutes", usage.screenTimeMinutes); state.put("unlock_count_today", usage.unlockCount);
+            state.put("summary", summary(batteryPercent, charging, current.appName, usageReady));
+            // Compatibility marker only. A real screen text is never created or sent in low mode.
+            state.put("screen_text", ""); state.put("now_state", NowState.collect(ctx));
+        } catch (Exception e) { try { state.put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { } }
         return state;
     }
 
-    public static String pretty(Context ctx) {
+    /** Poller entrypoint: only a package/app-label event, never an accessibility event or page detail. */
+    public static void recordForegroundFromUsage(Context ctx) { if (hasUsagePermission(ctx)) { CurrentApp app = currentApp(ctx, System.currentTimeMillis()); if (!app.packageName.isEmpty()) ActivityEventStore.recordForegroundChange(ctx, app.packageName); } }
+    public static boolean hasUsagePermission(Context ctx) { try { AppOpsManager appOps = (AppOpsManager) ctx.getSystemService(Context.APP_OPS_SERVICE); return appOps != null && appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), ctx.getPackageName()) == AppOpsManager.MODE_ALLOWED; } catch (Exception ignored) { return false; } }
+    public static String appLabelPublic(Context ctx, String pkg) { return appLabel(ctx, pkg); }
+
+    private static CurrentApp currentApp(Context ctx, long now) {
+        CurrentApp result = new CurrentApp();
         try {
-            JSONObject s = collect(ctx);
-            StringBuilder sb = new StringBuilder();
-            sb.append("生活状态层 v0.3.7.2\n");
-            sb.append("时间：").append(s.optString("local_time", "-")).append("  ").append(s.optString("local_date", "-")).append("\n");
-            sb.append("电量：").append(s.optInt("battery_percent", -1)).append("%  ").append(s.optBoolean("charging") ? "充电中" : "未充电").append("\n");
-            sb.append("网络：").append(s.optString("network_type", "-")).append("  屏幕：").append(s.optBoolean("screen_on") ? "亮" : "灭").append("\n");
-            sb.append("当前：").append(s.optString("current_app", "-")).append("\n");
-            sb.append("屏幕时间：").append(s.optInt("screen_time_today_minutes", 0)).append(" 分钟  解锁：").append(s.optInt("unlock_count_today", 0)).append(" 次\n");
-            sb.append("使用权限：").append(s.optBoolean("usage_permission_ready") ? "已开启" : "未开启，屏幕时间/解锁次数会为空").append("\n");
-            String city = s.optString("city", "");
-            String weather = s.optString("weather_note", "");
-            if (!city.isEmpty() || !weather.isEmpty()) sb.append("城市/天气：").append(city).append(city.isEmpty() || weather.isEmpty() ? "" : " · ").append(weather).append("\n");
-            sb.append("\n").append(WeatherState.pretty(ctx));
-            sb.append("\n").append(s.optString("summary", ""));
-            sb.append("\n\n").append(ActiveReminder.pretty(ctx));
-            sb.append("\n\n").append(HomeMode.pretty(ctx));
-            sb.append("\n\n").append(AppGate.pretty(ctx));
-            sb.append("\n\n").append(NowState.pretty(ctx));
-            sb.append("\n\n可打开 App：\n").append(AppPrefs.knownAppsText(ctx));
-            sb.append("\n\n").append(CycleState.pretty(ctx));
-            sb.append("\n\n").append(CalendarState.pretty(ctx));
-            return sb.toString();
-        } catch (Exception e) { return "生活状态读取失败：" + ScreenshotService.shortMsg(e); }
+            UsageStatsManager usm = (UsageStatsManager) ctx.getSystemService(Context.USAGE_STATS_SERVICE); if (usm == null) return result;
+            UsageEvents events = usm.queryEvents(Math.max(0L, now - 5 * 60_000L), now); UsageEvents.Event event = new UsageEvents.Event(); long latest = 0L;
+            while (events != null && events.hasNextEvent()) { events.getNextEvent(event); if (!isForeground(event.getEventType()) || event.getPackageName() == null || event.getTimeStamp() < latest) continue; latest = event.getTimeStamp(); result.packageName = event.getPackageName(); }
+            result.appName = appLabel(ctx, result.packageName);
+        } catch (Exception ignored) { }
+        return result;
     }
-
-    private static String makeSummary(int battery, boolean charging, String app, int screenMinutes, int unlocks, boolean usageReady) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("轻量查岗：");
-        if (app != null && app.length() > 0) sb.append("当前在 ").append(app).append("；");
-        if (battery >= 0) sb.append("电量 ").append(battery).append("%").append(charging ? "，正在充电；" : "，未充电；");
-        if (usageReady) sb.append("今日屏幕约 ").append(screenMinutes).append(" 分钟，解锁 ").append(unlocks).append(" 次。");
-        else sb.append("使用情况权限未开，暂时看不到今日屏幕时间。");
-        return sb.toString();
-    }
-
-    private static String pluggedToString(int plugged) {
-        if (plugged == BatteryManager.BATTERY_PLUGGED_USB) return "usb";
-        if (plugged == BatteryManager.BATTERY_PLUGGED_AC) return "ac";
-        if (Build.VERSION.SDK_INT >= 17 && plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS) return "wireless";
-        return "none";
-    }
-
-    private static String batteryStatusToString(int status) {
-        switch (status) {
-            case BatteryManager.BATTERY_STATUS_CHARGING: return "charging";
-            case BatteryManager.BATTERY_STATUS_DISCHARGING: return "discharging";
-            case BatteryManager.BATTERY_STATUS_FULL: return "full";
-            case BatteryManager.BATTERY_STATUS_NOT_CHARGING: return "not_charging";
-            default: return "unknown";
-        }
-    }
-
-    private static String networkType(Context ctx) {
+    private static UsageSnapshot readUsage(Context ctx, long now) {
+        UsageSnapshot summary = new UsageSnapshot();
         try {
-            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return "unknown";
-            if (Build.VERSION.SDK_INT >= 23) {
-                Network n = cm.getActiveNetwork();
-                if (n == null) return "none";
-                NetworkCapabilities cap = cm.getNetworkCapabilities(n);
-                if (cap == null) return "unknown";
-                if (cap.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "wifi";
-                if (cap.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "cellular";
-                if (cap.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "ethernet";
-                return "other";
-            } else {
-                android.net.NetworkInfo info = cm.getActiveNetworkInfo();
-                if (info == null || !info.isConnected()) return "none";
-                return info.getTypeName().toLowerCase(Locale.US);
-            }
-        } catch (Exception e) { return "unknown"; }
-    }
-
-    public static boolean hasUsagePermission(Context ctx) {
-        try {
-            AppOpsManager appOps = (AppOpsManager) ctx.getSystemService(Context.APP_OPS_SERVICE);
-            if (appOps == null) return false;
-            int mode = appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), ctx.getPackageName());
-            return mode == AppOpsManager.MODE_ALLOWED;
-        } catch (Exception e) { return false; }
-    }
-
-    private static UsageSummary readUsage(Context ctx, long now) {
-        UsageSummary summary = new UsageSummary();
-        try {
-            UsageStatsManager usm = (UsageStatsManager) ctx.getSystemService(Context.USAGE_STATS_SERVICE);
-            if (usm == null) return summary;
-            Calendar cal = Calendar.getInstance();
-            cal.set(Calendar.HOUR_OF_DAY, 0);
-            cal.set(Calendar.MINUTE, 0);
-            cal.set(Calendar.SECOND, 0);
-            cal.set(Calendar.MILLISECOND, 0);
-            long start = cal.getTimeInMillis();
-
-            java.util.HashMap<String, Long> foregroundStarts = new java.util.HashMap<>();
-            java.util.HashMap<String, Long> foregroundTotals = new java.util.HashMap<>();
-            UsageEvents events = usm.queryEvents(start, now);
-            UsageEvents.Event event = new UsageEvents.Event();
+            UsageStatsManager usm = (UsageStatsManager) ctx.getSystemService(Context.USAGE_STATS_SERVICE); if (usm == null) return summary;
+            Calendar c = Calendar.getInstance(); c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0); long start = c.getTimeInMillis(), openAt = 0L;
+            UsageEvents events = usm.queryEvents(start, now); UsageEvents.Event event = new UsageEvents.Event();
             while (events != null && events.hasNextEvent()) {
-                events.getNextEvent(event);
-                int type = event.getEventType();
-                String pkg = event.getPackageName();
-                long ts = Math.max(start, Math.min(now, event.getTimeStamp()));
-
-                boolean isUnlock = false;
-                if (Build.VERSION.SDK_INT >= 28) isUnlock = type == UsageEvents.Event.KEYGUARD_HIDDEN || type == UsageEvents.Event.SCREEN_INTERACTIVE;
-                else isUnlock = type == UsageEvents.Event.USER_INTERACTION;
-                if (isUnlock) { summary.unlockCount++; summary.lastUnlockAt = event.getTimeStamp(); }
-
-                if (pkg == null || pkg.trim().isEmpty()) continue;
-                if (isForegroundEvent(type)) {
-                    foregroundStarts.put(pkg, ts);
-                } else if (isBackgroundEvent(type)) {
-                    Long begin = foregroundStarts.remove(pkg);
-                    if (begin != null && ts > begin) {
-                        long old = foregroundTotals.containsKey(pkg) ? foregroundTotals.get(pkg) : 0L;
-                        foregroundTotals.put(pkg, old + (ts - begin));
-                    }
-                }
+                events.getNextEvent(event); int type = event.getEventType(); long at = Math.max(start, Math.min(now, event.getTimeStamp()));
+                if ((Build.VERSION.SDK_INT >= 28 && (type == UsageEvents.Event.KEYGUARD_HIDDEN || type == UsageEvents.Event.SCREEN_INTERACTIVE)) || (Build.VERSION.SDK_INT < 28 && type == UsageEvents.Event.USER_INTERACTION)) summary.unlockCount++;
+                if (isForeground(type)) openAt = at; else if (isBackground(type) && openAt > 0 && at > openAt) { summary.screenTimeMs += at - openAt; openAt = 0L; }
             }
-            for (java.util.Map.Entry<String, Long> e : foregroundStarts.entrySet()) {
-                long begin = Math.max(start, e.getValue());
-                if (now > begin) {
-                    long old = foregroundTotals.containsKey(e.getKey()) ? foregroundTotals.get(e.getKey()) : 0L;
-                    foregroundTotals.put(e.getKey(), old + (now - begin));
-                }
-            }
-
-            long total = 0;
-            List<AppUse> apps = new ArrayList<>();
-            for (java.util.Map.Entry<String, Long> e : foregroundTotals.entrySet()) {
-                long fg = e.getValue() == null ? 0L : e.getValue();
-                if (fg <= 0) continue;
-                total += fg;
-                apps.add(new AppUse(appLabel(ctx, e.getKey()), e.getKey(), fg));
-            }
-            Collections.sort(apps, new Comparator<AppUse>() { @Override public int compare(AppUse a, AppUse b) { return Long.compare(b.ms, a.ms); } });
-            JSONArray arr = new JSONArray();
-            for (int i = 0; i < Math.min(5, apps.size()); i++) {
-                AppUse u = apps.get(i);
-                JSONObject o = new JSONObject();
-                o.put("app", u.label); o.put("package", u.pkg); o.put("minutes", Math.round(u.ms / 60000.0));
-                arr.put(o);
-            }
-            summary.screenTimeMinutes = (int) Math.round(total / 60000.0);
-            summary.topApps = arr;
+            if (openAt > 0 && now > openAt) summary.screenTimeMs += now - openAt;
+            summary.screenTimeMinutes = (int) Math.round(summary.screenTimeMs / 60000.0);
         } catch (Exception ignored) { }
         return summary;
     }
-
-    private static boolean isForegroundEvent(int type) {
-        if (type == UsageEvents.Event.MOVE_TO_FOREGROUND) return true;
-        if (Build.VERSION.SDK_INT >= 29 && type == UsageEvents.Event.ACTIVITY_RESUMED) return true;
-        return false;
-    }
-
-    private static boolean isBackgroundEvent(int type) {
-        if (type == UsageEvents.Event.MOVE_TO_BACKGROUND) return true;
-        if (Build.VERSION.SDK_INT >= 29 && (type == UsageEvents.Event.ACTIVITY_PAUSED || type == UsageEvents.Event.ACTIVITY_STOPPED)) return true;
-        return false;
-    }
-
-    public static String appLabelPublic(Context ctx, String pkg) { return appLabel(ctx, pkg); }
-
-    private static String appLabel(Context ctx, String pkg) {
-        if (pkg == null || pkg.trim().isEmpty()) return "";
-        try {
-            PackageManager pm = ctx.getPackageManager();
-            ApplicationInfo info = pm.getApplicationInfo(pkg.trim(), 0);
-            CharSequence label = pm.getApplicationLabel(info);
-            return label == null ? pkg : label.toString();
-        } catch (Exception e) { return pkg; }
-    }
-
-    private static String formatLocal(long ms, String pattern) {
-        return new SimpleDateFormat(pattern, Locale.CHINA).format(new Date(ms));
-    }
-
-    private static String formatIsoLocal(long ms) {
-        return new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(new Date(ms));
-    }
-
-    private static class UsageSummary {
-        int screenTimeMinutes = 0;
-        int unlockCount = 0;
-        long lastUnlockAt = 0;
-        JSONArray topApps = new JSONArray();
-    }
-
-    private static class AppUse {
-        final String label; final String pkg; final long ms;
-        AppUse(String label, String pkg, long ms) { this.label = label; this.pkg = pkg; this.ms = ms; }
-    }
-
-    private static class SharedPreferencesCompat {
-        private final Context ctx;
-        SharedPreferencesCompat(Context ctx) { this.ctx = ctx; }
-        String city() { return AppPrefs.get(ctx).getString(AppPrefs.KEY_CITY, ""); }
-        String weatherNote() { return AppPrefs.get(ctx).getString(AppPrefs.KEY_WEATHER_NOTE, ""); }
-    }
+    private static boolean isForeground(int type) { return type == UsageEvents.Event.MOVE_TO_FOREGROUND || (Build.VERSION.SDK_INT >= 29 && type == UsageEvents.Event.ACTIVITY_RESUMED); }
+    private static boolean isBackground(int type) { return type == UsageEvents.Event.MOVE_TO_BACKGROUND || (Build.VERSION.SDK_INT >= 29 && (type == UsageEvents.Event.ACTIVITY_PAUSED || type == UsageEvents.Event.ACTIVITY_STOPPED)); }
+    private static String appLabel(Context ctx, String pkg) { try { if (pkg == null || pkg.trim().isEmpty()) return ""; ApplicationInfo info = ctx.getPackageManager().getApplicationInfo(pkg, 0); CharSequence label = ctx.getPackageManager().getApplicationLabel(info); return label == null ? pkg : label.toString(); } catch (Exception ignored) { return pkg == null ? "" : pkg; } }
+    private static String networkType(Context ctx) { try { ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE); if (cm == null) return "unknown"; if (Build.VERSION.SDK_INT >= 23) { Network n = cm.getActiveNetwork(); NetworkCapabilities caps = n == null ? null : cm.getNetworkCapabilities(n); if (caps == null) return "none"; if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "wifi"; if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "cellular"; if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "ethernet"; return "other"; } android.net.NetworkInfo info = cm.getActiveNetworkInfo(); return info != null && info.isConnected() ? info.getTypeName().toLowerCase(Locale.US) : "none"; } catch (Exception ignored) { return "unknown"; } }
+    private static String pluggedToString(int v) { if (v == BatteryManager.BATTERY_PLUGGED_USB) return "usb"; if (v == BatteryManager.BATTERY_PLUGGED_AC) return "ac"; if (Build.VERSION.SDK_INT >= 17 && v == BatteryManager.BATTERY_PLUGGED_WIRELESS) return "wireless"; return "none"; }
+    private static String batteryStatusToString(int v) { if (v == BatteryManager.BATTERY_STATUS_CHARGING) return "charging"; if (v == BatteryManager.BATTERY_STATUS_DISCHARGING) return "discharging"; if (v == BatteryManager.BATTERY_STATUS_FULL) return "full"; if (v == BatteryManager.BATTERY_STATUS_NOT_CHARGING) return "not_charging"; return "unknown"; }
+    private static String summary(int battery, boolean charging, String app, boolean usageReady) { return "低权限状态：" + (app.isEmpty() ? "当前 App 未识别" : "当前在 " + app) + (battery < 0 ? "" : "；电量 " + battery + "%" + (charging ? "，充电中" : "")) + (usageReady ? "。" : "；使用情况权限未开启。"); }
+    private static String format(long at, String pattern) { return new SimpleDateFormat(pattern, Locale.CHINA).format(new Date(at)); }
+    public static String pretty(Context ctx) { JSONObject s = collect(ctx); return "隐私模式：低权限\n当前：" + s.optString("current_app", "未授权") + "\n电量：" + s.optInt("battery_percent", -1) + "%\n网络：" + s.optString("network_type", "unknown") + "\n屏幕时间：" + s.optInt("screen_time_today_minutes", 0) + " 分钟 · 解锁 " + s.optInt("unlock_count_today", 0) + " 次\n不读取页面内容、聊天、节点、截图、定位或传感器原始数据。"; }
+    private static final class CurrentApp { String packageName = ""; String appName = ""; }
+    private static final class UsageSnapshot { int screenTimeMinutes; int unlockCount; long screenTimeMs; }
 }

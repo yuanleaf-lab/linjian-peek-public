@@ -26,6 +26,10 @@ public class AppPrefs {
     public static final String KEY_WEATHER_NOTE = "life_weather_note";
     public static final String KEY_WEATHER_LOCATIONS = "weather_locations_lines";
     public static final String KEY_THEME = "ui_theme";
+    /** Privacy is opt-in: existing installs migrate to the safe default rather than enhanced access. */
+    public static final String KEY_PRIVACY_MODE = "privacy_mode";
+    public static final String PRIVACY_MODE_LOW = "low";
+    public static final String PRIVACY_MODE_ENHANCED = "enhanced";
     public static final String KEY_ACTIVE_REMINDERS = "active_reminders_enabled";
     public static final String KEY_RULE_BATTERY = "rule_battery_enabled";
     public static final String KEY_BATTERY_THRESHOLD = "rule_battery_threshold";
@@ -63,6 +67,17 @@ public class AppPrefs {
     public static final String DEFAULT_HOME_TARGET_PACKAGE = "";
 
     public static SharedPreferences get(Context ctx) { return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
+
+    public static String privacyMode(Context ctx) {
+        String mode = get(ctx).getString(KEY_PRIVACY_MODE, PRIVACY_MODE_LOW);
+        return PRIVACY_MODE_ENHANCED.equals(mode) ? PRIVACY_MODE_ENHANCED : PRIVACY_MODE_LOW;
+    }
+
+    public static boolean isLowPrivacy(Context ctx) { return PRIVACY_MODE_LOW.equals(privacyMode(ctx)); }
+    public static boolean isEnhancedPrivacy(Context ctx) { return PRIVACY_MODE_ENHANCED.equals(privacyMode(ctx)); }
+    public static void setPrivacyMode(Context ctx, String mode) {
+        get(ctx).edit().putString(KEY_PRIVACY_MODE, PRIVACY_MODE_ENHANCED.equals(mode) ? PRIVACY_MODE_ENHANCED : PRIVACY_MODE_LOW).apply();
+    }
 
     /** User-supplied public deployment address; no built-in private endpoint. */
     public static String cleanServer(String raw) {

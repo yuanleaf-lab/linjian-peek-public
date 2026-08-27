@@ -50,13 +50,10 @@ public final class ActivityEventStore {
         if (pkg.equals(previous)) return;
         p.edit().putString(KEY_LAST_PACKAGE, pkg).apply();
         String app = appLabel(ctx, pkg);
-        String previousLabel = previous.isEmpty() ? "" : appLabel(ctx, previous);
-        String subtitle = previousLabel.isEmpty() ? "" : "离开 " + previousLabel;
         try {
             add(ctx, new JSONObject().put("source", "phone").put("type", "app_open")
-                    .put("title", titleForPackage(ctx, pkg, app)).put("subtitle", subtitle)
                     .put("app_name", app).put("package_name", pkg).put("action", "foreground_changed")
-                    .put("status", "completed").put("metadata_json", new JSONObject().put("previous_package", previous)), true);
+                    .put("status", "completed"), true);
         } catch (Exception ignored) { }
     }
 
@@ -140,10 +137,10 @@ public final class ActivityEventStore {
             e.put("created_at_ms", input.optLong("created_at_ms", now));
             e.put("local_date", new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date(now)));
             e.put("local_time", new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(now)));
-            for (String key : new String[]{"source", "type", "title", "subtitle", "app_name", "package_name", "action", "status"})
-                e.put(key, clean(input.optString(key, key.equals("source") ? "phone" : (key.equals("status") ? "completed" : "")), key.equals("subtitle") ? 220 : 120));
-            Object metadata = input.opt("metadata_json");
-            e.put("metadata_json", metadata == null ? new JSONObject() : metadata);
+            for (String key : new String[]{"source", "type", "app_name", "package_name", "action", "status"})
+                e.put(key, clean(input.optString(key, key.equals("source") ? "phone" : (key.equals("status") ? "completed" : "")), 120));
+            // Event history is intentionally a package-level timeline. Never preserve title, text, node data or arbitrary metadata.
+            e.put("title", ""); e.put("subtitle", ""); e.put("metadata_json", new JSONObject());
         } catch (Exception ignored) { }
         return e;
     }

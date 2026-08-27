@@ -143,7 +143,7 @@ public class MainActivity extends Activity {
 
         if (accessibilityButton != null) accessibilityButton.setOnClickListener(v -> { if (recentlyOpenedAccessibilitySettings() && !isAccessibilityServiceEnabled()) showAccessibilityHelpDialog(); else openAccessibilitySettings(); });
         if (usageAccessButton != null) usageAccessButton.setOnClickListener(v -> openUsageAccessSettings());
-        if (locationPermissionButton != null) locationPermissionButton.setOnClickListener(v -> requestLocationPermission());
+        if (locationPermissionButton != null) locationPermissionButton.setOnClickListener(v -> showPrivacyModeDialog());
         if (overlayPermissionButton != null) overlayPermissionButton.setOnClickListener(v -> openOverlayPermissionSettings());
         if (toggleButton != null) toggleButton.setOnClickListener(v -> { if (serviceRunning) stopCompanionService(); else startCompanionService(); });
         if (refreshLifeButton != null) refreshLifeButton.setOnClickListener(v -> { saveSettings(); updateUI(); Toast.makeText(this, "已刷新生活总览", Toast.LENGTH_SHORT).show(); });
@@ -2238,11 +2238,10 @@ public class MainActivity extends Activity {
         saveSettings();
         String url = serverUrl == null ? "" : serverUrl.getText().toString().trim(); String token = tokenInput == null ? "" : tokenInput.getText().toString().trim();
         if (url.isEmpty() || token.isEmpty()) { Toast.makeText(this, "请填写服务器地址和 Token", Toast.LENGTH_SHORT).show(); return; }
-        if (ScreenshotService.getInstance() == null) { DebugState.append(this, "启动失败：无障碍服务未连接"); Toast.makeText(this, "请先开启掌心窗无障碍服务", Toast.LENGTH_LONG).show(); openAccessibilitySettings(); return; }
         getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit().putBoolean("user_stopped", false).apply(); requestIgnoreBatteryOptimization();
         Intent intent = new Intent(this, CompanionService.class); intent.putExtra("server_url", url); intent.putExtra("token", token);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent); else startService(intent);
-        DebugState.append(this, "已请求启动前台服务：公开版 v0.3.7.2 右侧 love 线稿花枝已启用"); serviceRunning = true; updateUI();
+        DebugState.appendAndLog(this, "已请求启动前台服务：低权限模式可在无障碍关闭时运行"); serviceRunning = true; updateUI();
     }
 
     private void stopCompanionService() { getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit().putBoolean("user_stopped", true).apply(); stopService(new Intent(this, CompanionService.class)); DebugState.append(this, "已停止服务"); serviceRunning = false; updateUI(); }
@@ -2250,6 +2249,7 @@ public class MainActivity extends Activity {
     private void testScreenshot() {
         saveSettings(); String url = serverUrl == null ? "" : serverUrl.getText().toString().trim(); String token = tokenInput == null ? "" : tokenInput.getText().toString().trim(); ScreenshotService ss = ScreenshotService.getInstance();
         if (url.isEmpty() || token.isEmpty()) { Toast.makeText(this, "先填服务器地址和 Token", Toast.LENGTH_SHORT).show(); return; }
+        if (AppPrefs.isLowPrivacy(this)) { Toast.makeText(this, "低权限模式不允许截图；请由你手动开启增强模式", Toast.LENGTH_LONG).show(); return; }
         if (ss == null) { recordAccessibilityState(); DebugState.appendAndLog(this, "测试失败：无障碍服务未连接"); Toast.makeText(this, "截图失败 · 无障碍服务断开", Toast.LENGTH_LONG).show(); openAccessibilitySettings(); return; }
         DebugState.appendAndLog(this, "给" + AppPrefs.companionName(this) + "看一眼：开始截图上传");
         Toast.makeText(this, "正在截图并上传", Toast.LENGTH_SHORT).show();
@@ -2485,6 +2485,19 @@ public class MainActivity extends Activity {
         else Toast.makeText(this, "定位权限已开启", Toast.LENGTH_SHORT).show();
         updateUI();
     }
+
+    private void showPrivacyModeDialog() {
+        boolean low = AppPrefs.isLowPrivacy(this);
+        String text = low
+                ? "隐私模式：低权限\n默认只同步当前 App、屏幕状态、电量、充电、网络和今日使用情况；不读取页面内容、聊天、控件、截图、定位或传感器。\n\n增强模式会重新允许你手动开启无障碍后使用截图与远程控制。"
+                : "隐私模式：增强\n截图、读屏与远程控制仅在你已经手动开启无障碍时可用。切回低权限会立即停止读取页面内容、控件、截图、定位和传感器。";
+        new AlertDialog.Builder(this).setTitle("隐私模式").setMessage(text).setNegativeButton("取消", null)
+                .setPositiveButton(low ? "手动开启增强" : "切回低权限", (d, w) -> {
+                    AppPrefs.setPrivacyMode(this, low ? AppPrefs.PRIVACY_MODE_ENHANCED : AppPrefs.PRIVACY_MODE_LOW);
+                    DebugState.appendAndLog(this, "隐私模式已由用户切换为 " + AppPrefs.privacyMode(this));
+                    Toast.makeText(this, AppPrefs.isLowPrivacy(this) ? "已切回低权限模式" : "已开启增强模式；无障碍仍需你在系统中手动开启", Toast.LENGTH_LONG).show(); updateUI();
+                }).show();
+    }
     private void openOverlayPermissionSettings() {
         try {
             if (Build.VERSION.SDK_INT >= 23) startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
@@ -2505,13 +2518,14 @@ public class MainActivity extends Activity {
         boolean usageOk = LifeState.hasUsagePermission(this);
         UITheme visualTheme = UITheme.current(this);
         updateHeader(currentTab);
-        if (serviceRunning) { if (statusText != null) { statusText.setText(accessibilityOk ? "●  窗已打开 · 陪伴和守护都在" : (accessibilityConfirming ? "●  生活小窗已打开 · 正在确认无障碍" : "●  生活小窗已打开 · 无障碍待开启")); statusText.setTextColor(accessibilityOk ? visualTheme.primary : 0xFFCF8A62); } if (toggleButton != null) { toggleButton.setText("停止服务"); toggleButton.setBackgroundResource(R.drawable.pill_danger); } }
-        else { if (statusText != null) { statusText.setText(accessibilityOk ? "○  感官已准备 · 服务等待开启" : (accessibilityConfirming ? "○  正在确认无障碍状态" : "○  天气可用 · 无障碍待开启")); statusText.setTextColor(accessibilityConfirming ? 0xFFCF8A62 : visualTheme.subtext); } if (toggleButton != null) { toggleButton.setText("启动服务"); toggleButton.setBackgroundResource(R.drawable.pill_primary); } }
+        boolean lowPrivacy = AppPrefs.isLowPrivacy(this);
+        if (serviceRunning) { if (statusText != null) { statusText.setText(lowPrivacy ? "●  低权限服务运行中" : (accessibilityOk ? "●  增强服务运行中" : "●  增强模式等待无障碍")); statusText.setTextColor(visualTheme.primary); } if (toggleButton != null) { toggleButton.setText("停止服务"); toggleButton.setBackgroundResource(R.drawable.pill_danger); } }
+        else { if (statusText != null) { statusText.setText(lowPrivacy ? "○  低权限服务等待开启" : "○  增强服务等待开启"); statusText.setTextColor(visualTheme.subtext); } if (toggleButton != null) { toggleButton.setText("启动服务"); toggleButton.setBackgroundResource(R.drawable.pill_primary); } }
         if (accessibilityButton != null) accessibilityButton.setText(accessibilityConnected ? "无障碍权限：已连接" : (accessibilityOk ? "无障碍权限：系统已开启，等待连接" : (accessibilityConfirming ? "无障碍权限：正在确认，点此查看提示" : "打开无障碍设置")));
         if (usageAccessButton != null) usageAccessButton.setText(usageOk ? "使用情况权限：已开启" : "打开使用情况访问权限");
-        if (locationPermissionButton != null) locationPermissionButton.setText(NowState.hasLocationPermission(this) ? "定位权限：已开启" : "打开定位权限");
+        if (locationPermissionButton != null) locationPermissionButton.setText(lowPrivacy ? "隐私模式：低权限" : "隐私模式：增强（点此切回低权限）");
         if (overlayPermissionButton != null) overlayPermissionButton.setText((Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) ? "悬浮窗权限：已开启" : "打开悬浮窗权限");
-        if (nowStatePermissionText != null) nowStatePermissionText.setText("此刻状态：" + (NowState.hasLocationPermission(this) ? "定位已授权" : "定位未授权") + " · " + ((Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) ? "悬浮窗已授权" : "悬浮窗未授权") + "\n用于状态卡片与应用门禁悬浮页。权限均由用户在本机开启。");
+        if (nowStatePermissionText != null) nowStatePermissionText.setText(lowPrivacy ? "隐私模式：低权限\n默认只共享当前 App、屏幕状态、电量和基础使用情况，不读取页面内容。" : "增强模式：截图、读屏和远程控制仅在你手动开启无障碍后可用。");
         try {
             JSONObject s = LifeState.collect(this);
             int battery = s.optInt("battery_percent", -1); boolean charging = s.optBoolean("charging", false);

@@ -139,6 +139,7 @@ public class ScreenshotService extends AccessibilityService {
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
+        if (AppPrefs.isLowPrivacy(this)) return;
         CharSequence pkg = event.getPackageName();
         if (pkg != null) currentPackage = pkg.toString();
         int t = event.getEventType();
@@ -201,9 +202,10 @@ public class ScreenshotService extends AccessibilityService {
         } finally { conn.disconnect(); }
     }
 
-    public void refreshScreenModel() { updateScreenText(); }
+    public void refreshScreenModel() { if (AppPrefs.isEnhancedPrivacy(this)) updateScreenText(); }
 
     private void updateScreenText() {
+        if (AppPrefs.isLowPrivacy(this)) { screenText = ""; screenNodesJson = "[]"; return; }
         try {
             AccessibilityNodeInfo root = getRootInActiveWindow();
             StringBuilder sb = new StringBuilder();
@@ -242,11 +244,12 @@ public class ScreenshotService extends AccessibilityService {
         return count;
     }
 
-    public String getScreenNodesJsonNow() { refreshScreenModel(); return screenNodesJson(); }
+    public String getScreenNodesJsonNow() { if (AppPrefs.isLowPrivacy(this)) return "[]"; refreshScreenModel(); return screenNodesJson(); }
 
     public JSONObject tapText(String query, String match, int index) {
         JSONObject out = new JSONObject();
         try {
+            if (AppPrefs.isLowPrivacy(this)) { out.put("ok", false); out.put("result", "enhanced_privacy_mode_required"); return out; }
             if (query == null || query.trim().isEmpty()) { out.put("ok", false); out.put("result", "target_text_empty"); return out; }
             AccessibilityNodeInfo root = getRootInActiveWindow();
             TextHit hit = new TextHit(); hit.targetIndex = Math.max(1, index); hit.match = (match == null || match.length() == 0) ? "contains" : match; hit.query = query.trim();
@@ -310,6 +313,7 @@ public class ScreenshotService extends AccessibilityService {
     public JSONObject inputText(String text, boolean append) {
         JSONObject out = new JSONObject();
         try {
+            if (AppPrefs.isLowPrivacy(this)) { out.put("ok", false); out.put("result", "enhanced_privacy_mode_required"); return out; }
             AccessibilityNodeInfo root = getRootInActiveWindow();
             AccessibilityNodeInfo target = root == null ? null : root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
             if (target == null) target = findEditable(root);
@@ -349,15 +353,17 @@ public class ScreenshotService extends AccessibilityService {
         return null;
     }
 
-    public boolean doBack() { return performGlobalAction(GLOBAL_ACTION_BACK); }
-    public boolean doHome() { return performGlobalAction(GLOBAL_ACTION_HOME); }
-    public boolean doRecents() { return performGlobalAction(GLOBAL_ACTION_RECENTS); }
+    public boolean doBack() { return AppPrefs.isEnhancedPrivacy(this) && performGlobalAction(GLOBAL_ACTION_BACK); }
+    public boolean doHome() { return AppPrefs.isEnhancedPrivacy(this) && performGlobalAction(GLOBAL_ACTION_HOME); }
+    public boolean doRecents() { return AppPrefs.isEnhancedPrivacy(this) && performGlobalAction(GLOBAL_ACTION_RECENTS); }
     public boolean doLockScreen() {
+        if (AppPrefs.isLowPrivacy(this)) return false;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false;
         return performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
     }
 
     public boolean doTap(float x, float y) {
+        if (AppPrefs.isLowPrivacy(this)) return false;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false;
         Path p = new Path(); p.moveTo(x, y);
         GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(p, 0, 80);
@@ -365,6 +371,7 @@ public class ScreenshotService extends AccessibilityService {
     }
 
     public boolean doSwipe(float x1, float y1, float x2, float y2, long durationMs) {
+        if (AppPrefs.isLowPrivacy(this)) return false;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false;
         Path p = new Path(); p.moveTo(x1, y1); p.lineTo(x2, y2);
         GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(p, 0, Math.max(80, durationMs));
@@ -376,6 +383,7 @@ public class ScreenshotService extends AccessibilityService {
     }
 
     public void doScreenshot(String serverUrl, String token, ScreenshotCallback callback) {
+        if (AppPrefs.isLowPrivacy(this)) { report(callback, "enhanced_privacy_mode_required", true, false, 0, "低权限模式不允许截图；请由用户手动开启增强模式"); return; }
         if (Build.VERSION.SDK_INT < 30) { report(callback, "android_version_unsupported", true, false, 0, "Android 版本低于 11"); return; }
         final String finalUrl = normalizeUrl(serverUrl);
         report(callback, "take_screenshot_start", false, false, 0, "开始调用系统截图 API");
