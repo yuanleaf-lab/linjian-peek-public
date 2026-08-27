@@ -1,9 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/mainRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@drawable/app_bg">
+
+    <ImageView
+        android:id="@+id/backgroundImage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:visibility="gone"
+        android:importantForAccessibility="no" />
+
+    <View
+        android:id="@+id/backgroundScrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#D9F3F8FC"
+        android:importantForAccessibility="no" />
+
+    <LinearLayout
+        android:id="@+id/mainContent"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:background="@android:color/transparent">
 
     <LinearLayout
         android:id="@+id/topHeader"
@@ -57,13 +79,14 @@
                     android:layout_marginTop="2dp" />
             </LinearLayout>
 
-            <Button
+            <ImageButton
                 android:id="@+id/tabSettings"
-                android:layout_width="30dp"
-                android:layout_height="30dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:background="@drawable/glow_badge_bg"
-                android:drawableTop="@drawable/ic_settings"
-                android:padding="7dp"
+                android:src="@drawable/ic_settings"
+                android:scaleType="center"
+                android:padding="0dp"
                 android:layout_marginLeft="8dp"
                 android:contentDescription="设置" />
         </LinearLayout>
@@ -563,16 +586,16 @@
     <LinearLayout
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
-        android:layout_height="68dp"
+        android:layout_height="72dp"
         android:orientation="horizontal"
         android:gravity="center"
         android:paddingLeft="9dp"
         android:paddingRight="9dp"
         android:paddingTop="5dp"
         android:paddingBottom="5dp"
-        android:layout_marginLeft="34dp"
-        android:layout_marginRight="34dp"
-        android:layout_marginBottom="6dp"
+        android:layout_marginLeft="20dp"
+        android:layout_marginRight="20dp"
+        android:layout_marginBottom="8dp"
         android:elevation="1dp"
         android:background="@drawable/bottom_bar_bg">
 
@@ -583,3 +606,4 @@
         <Button android:id="@+id/tabDebug" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
     </LinearLayout>
 </LinearLayout>
+</FrameLayout>

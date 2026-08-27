@@ -16,8 +16,9 @@ public class UITheme {
     }
 
     public static UITheme current(Context ctx) {
-        String n = AppPrefs.get(ctx).getString(AppPrefs.KEY_THEME, "白桃粉");
-        return byName(n);
+        String n = AppPrefs.get(ctx).getString(AppPrefs.KEY_THEME, "雾蓝白");
+        UITheme theme = byName(n);
+        return theme.withGlassAlpha(AppPrefs.customInt(ctx, AppPrefs.KEY_GLASS_ALPHA, 88, 55, 100));
     }
 
     public static UITheme byName(String n) {
@@ -45,6 +46,16 @@ public class UITheme {
                 Color.rgb(248, 252, 249), Color.rgb(243, 250, 247), Color.WHITE, Color.rgb(247, 252, 249),
                 Color.rgb(103, 181, 165), Color.rgb(229, 247, 242), Color.rgb(214, 158, 174),
                 Color.rgb(43, 59, 54), Color.rgb(109, 134, 128), Color.rgb(226, 238, 234), Color.rgb(226, 105, 122), false);
+    }
+
+    private UITheme withGlassAlpha(int percent) {
+        int a = Math.max(55, Math.min(100, percent)) * 255 / 100;
+        return new UITheme(name, bgTop, bgBottom, withAlpha(card, a), withAlpha(cardSoft, Math.min(255, a + 18)),
+                primary, primarySoft, accent, text, subtext, line, danger, dark);
+    }
+
+    private static int withAlpha(int color, int alpha) {
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
     }
 
     public GradientDrawable background() {

@@ -43,7 +43,9 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.LinearLayout;
 import android.widget.ImageView;
+import android.widget.ImageButton;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Toast;
 
 import org.json.JSONObject;
@@ -84,12 +86,19 @@ public class MainActivity extends Activity {
     private Button drawerGuidianButton, drawerGuidianSettingsButton, drawerCalendarButton, saveCalendarEventButton;
     private CheckBox remindersEnabled, batteryRuleEnabled, screenRuleEnabled, waterRuleEnabled, restRuleEnabled, cycleEnabled, foregroundPopupEnabled, homeModeEnabled, homeModeForceEnabled, appGateEnabled;
     private CheckBox guidianEnabled, guidianRemoteEnabled, guidianFullscreenEnabled, guidianQuietEnabled, calendarLunarEnabled, calendarRepeatEnabled, calendarBannerEnabled;
-    private Button tabSettings, tabSee, tabControl, tabLife, tabGate, tabDebug;
+    private ImageButton tabSettings;
+    private Button tabSee, tabControl, tabLife, tabGate, tabDebug;
     private View quickSeeButton, quickGuardButton;
     private View sectionSettings, sectionSee, sectionControl, sectionLife, sectionGate, sectionDebug;
     private View heroCard, bottomNav, topHeader;
     private View drawerTheme, drawerNowState, drawerConnection, drawerPermission, drawerControlTest, drawerKnownApps, drawerHomeMode, drawerGateAdd, drawerReminder, drawerCycle, drawerDebug, drawerAppGate, drawerWeather, drawerVersion;
     private View drawerGuidian, drawerGuidianSettings, drawerCalendar;
+    private View mainRoot, backgroundScrim;
+    private ImageView backgroundImage;
+    private LinearLayout drawerAppearance;
+    private Button drawerAppearanceButton, chooseBackgroundButton, resetBackgroundButton, saveAppearanceButton;
+    private EditText homeTitleInput, homeSubtitleInput, homeWhisperLabelInput, homeWhisperDetailInput, homeNextLabelInput, gateMessageInput, guidianMessageInput;
+    private SeekBar backgroundSoftnessSeek, glassAlphaSeek;
     private EditText serverUrl, tokenInput, deviceInput, intervalInput, cityInput, weatherInput, userNameInput, companionNameInput;
     private EditText weatherAliasInput, weatherCityInput, weatherNoteInput, calendarTitleInput, calendarDateInput, calendarGroupInput, calendarNoteInput;
     private EditText batteryThresholdInput, screenThresholdInput, waterIntervalInput, restIntervalInput;
@@ -104,6 +113,7 @@ public class MainActivity extends Activity {
     private static final int REQ_DIARY_COVER = 230724;
     private static final int REQ_DIARY_EXPORT = 230725;
     private static final int REQ_DIARY_IMPORT = 230726;
+    private static final int REQ_BACKGROUND = 230727;
     private static boolean openingShownForProcess = false;
     private SoftAvatarView companionAvatarView;
     private ImageView companionRestArt;
@@ -134,6 +144,7 @@ public class MainActivity extends Activity {
         bindViews();
         buildMagazinePages();
         loadSettings();
+        applyBackground();
         NowState.start(this);
 
         DebugState.append(this, "掌心窗公开版 v0.3.7.2 已打开");
@@ -211,6 +222,7 @@ public class MainActivity extends Activity {
     }
 
     private void bindViews() {
+        mainRoot = findViewById(R.id.mainRoot); backgroundImage = findViewById(R.id.backgroundImage); backgroundScrim = findViewById(R.id.backgroundScrim);
         topHeader = findViewById(R.id.topHeader); brandText = findViewById(R.id.brandText); headerTitle = findViewById(R.id.headerTitle); headerSubtitle = findViewById(R.id.headerSubtitle); statusText = findViewById(R.id.statusText); debugText = findViewById(R.id.debugText); lifeStatusText = findViewById(R.id.lifeStatusText); lifeSummaryText = findViewById(R.id.lifeSummaryText); knownAppsText = findViewById(R.id.knownAppsText); homeModeStatusText = findViewById(R.id.homeModeStatusText); gateStatusText = findViewById(R.id.gateStatusText); nowStatePermissionText = findViewById(R.id.nowStatePermissionText);
         heroLabelText = findViewById(R.id.heroLabelText); overviewAdviceText = findViewById(R.id.overviewAdviceText); overviewSecondaryText = findViewById(R.id.overviewSecondaryText); overviewMetaText = findViewById(R.id.overviewMetaText); overviewBatteryText = findViewById(R.id.overviewBatteryText); overviewBatteryDetail = findViewById(R.id.overviewBatteryDetail); overviewAppText = findViewById(R.id.overviewAppText); overviewAppDetail = findViewById(R.id.overviewAppDetail); overviewScreenText = findViewById(R.id.overviewScreenText); overviewScreenDetail = findViewById(R.id.overviewScreenDetail); overviewWeatherText = findViewById(R.id.overviewWeatherText); overviewWeatherDetail = findViewById(R.id.overviewWeatherDetail); weatherLocationsText = findViewById(R.id.weatherLocationsText); themeText = findViewById(R.id.themeText); calendarSummaryText = findViewById(R.id.calendarSummaryText); calendarDetailText = findViewById(R.id.calendarDetailText);
         overviewBatteryLabel = findViewById(R.id.overviewBatteryLabel); overviewAppLabel = findViewById(R.id.overviewAppLabel); overviewScreenLabel = findViewById(R.id.overviewScreenLabel); overviewWeatherLabel = findViewById(R.id.overviewWeatherLabel); quickSeeTitle = findViewById(R.id.quickSeeTitle); quickSeeDetail = findViewById(R.id.quickSeeDetail); quickSeeArrow = findViewById(R.id.quickSeeArrow); quickGuardTitle = findViewById(R.id.quickGuardTitle); quickGuardDetail = findViewById(R.id.quickGuardDetail); quickGuardArrow = findViewById(R.id.quickGuardArrow); quickSeeIcon = findViewById(R.id.quickSeeIcon); quickGuardIcon = findViewById(R.id.quickGuardIcon);
@@ -250,9 +262,9 @@ public class MainActivity extends Activity {
         if (settings != null) {
             for (int i = settings.getChildCount() - 1; i >= 0; i--) {
                 Object tag = settings.getChildAt(i).getTag();
-                if ("dynamic_privacy".equals(tag) || "dynamic_diary_backup".equals(tag)) settings.removeViewAt(i);
+                if ("dynamic_privacy".equals(tag) || "dynamic_diary_backup".equals(tag) || "dynamic_appearance".equals(tag)) settings.removeViewAt(i);
             }
-            settings.setPadding(0, 0, 0, dp(42));
+            settings.setPadding(0, 0, 0, dp(140));
             Button privacyButton = actionButton("隐私与记录  ›", false);
             privacyButton.setTag("dynamic_privacy");
             LinearLayout privacy = cardColumn();
@@ -297,7 +309,106 @@ public class MainActivity extends Activity {
             bindDrawer(diaryBackupButton, diaryBackup, "日记本备份");
             settings.addView(diaryBackupButton, 2, marginBottom(8));
             settings.addView(diaryBackup, 3, marginBottom(8));
+            addAppearancePanel(settings);
         }
+    }
+
+    private void addAppearancePanel(LinearLayout settings) {
+        drawerAppearanceButton = actionButton("外观与文案  ›", false);
+        drawerAppearanceButton.setTag("dynamic_appearance");
+        drawerAppearance = cardColumn();
+        drawerAppearance.setTag("dynamic_appearance");
+        drawerAppearance.setVisibility(View.GONE);
+        drawerAppearance.addView(title("外观与文案", 16));
+        drawerAppearance.addView(body("调整掌心窗的称呼、首页文案、背景和玻璃质感。系统安全提示保持固定。", 9), matchWrapTop(5));
+
+        homeTitleInput = appearanceInput("首页标题", "今天", AppPrefs.KEY_HOME_TITLE);
+        homeSubtitleInput = appearanceInput("首页副标题", "看一眼今天，也照顾好自己。", AppPrefs.KEY_HOME_SUBTITLE);
+        homeWhisperLabelInput = appearanceInput("窗语标签", "今日窗语", AppPrefs.KEY_HOME_WHISPER_LABEL);
+        homeWhisperDetailInput = appearanceInput("窗语下方小文案", "晚风会替你放下没有完成的事。", AppPrefs.KEY_HOME_WHISPER_DETAIL);
+        homeNextLabelInput = appearanceInput("下一件事标题", "下一件事", AppPrefs.KEY_HOME_NEXT_LABEL);
+        gateMessageInput = appearanceInput("门禁提示语", "先休息一下，等会儿再回来。", AppPrefs.KEY_GATE_MESSAGE);
+        guidianMessageInput = appearanceInput("归电提示语", "很久没回来时，陪伴者会来敲门。", AppPrefs.KEY_GUIDIAN_MESSAGE);
+
+        drawerAppearance.addView(label("自定义文案", 9), matchWrapTop(10));
+        drawerAppearance.addView(homeTitleInput, matchWrapTop(4));
+        drawerAppearance.addView(homeSubtitleInput);
+        drawerAppearance.addView(homeWhisperLabelInput);
+        drawerAppearance.addView(homeWhisperDetailInput);
+        drawerAppearance.addView(homeNextLabelInput);
+        drawerAppearance.addView(gateMessageInput);
+        drawerAppearance.addView(guidianMessageInput);
+
+        drawerAppearance.addView(label("自定义背景", 9), matchWrapTop(12));
+        drawerAppearance.addView(body("背景图片只保存在本机，不会进入状态同步或服务器上传。", 9), matchWrapTop(4));
+        LinearLayout bgButtons = horizontal();
+        chooseBackgroundButton = actionButton("选择背景图", true);
+        resetBackgroundButton = actionButton("恢复默认", false);
+        bgButtons.addView(chooseBackgroundButton, weightedWrap(1f, 0));
+        bgButtons.addView(resetBackgroundButton, weightedWrap(1f, 6));
+        drawerAppearance.addView(bgButtons, matchWrapTop(7));
+        chooseBackgroundButton.setOnClickListener(v -> chooseBackgroundImage());
+        resetBackgroundButton.setOnClickListener(v -> resetBackgroundImage());
+
+        drawerAppearance.addView(label("背景与玻璃", 9), matchWrapTop(12));
+        drawerAppearance.addView(body("柔和度", 9), matchWrapTop(4));
+        backgroundSoftnessSeek = new SeekBar(this); backgroundSoftnessSeek.setMax(60);
+        backgroundSoftnessSeek.setProgress(AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60));
+        drawerAppearance.addView(backgroundSoftnessSeek);
+        drawerAppearance.addView(body("玻璃透明度", 9), matchWrapTop(4));
+        glassAlphaSeek = new SeekBar(this); glassAlphaSeek.setMax(45);
+        glassAlphaSeek.setProgress(AppPrefs.customInt(this, AppPrefs.KEY_GLASS_ALPHA, 88, 55, 100) - 55);
+        drawerAppearance.addView(glassAlphaSeek);
+        backgroundSoftnessSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int p, boolean fromUser) { if (fromUser) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_BACKGROUND_SOFTNESS, p).apply(); applyBackground(); } }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        glassAlphaSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int p, boolean fromUser) { if (fromUser) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_GLASS_ALPHA, p + 55).apply(); buildMagazinePages(); updateUI(); } }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        saveAppearanceButton = actionButton("保存并应用", true);
+        saveAppearanceButton.setOnClickListener(v -> saveAppearance());
+        drawerAppearance.addView(saveAppearanceButton, matchWrapTop(12));
+        bindDrawer(drawerAppearanceButton, drawerAppearance, "外观与文案");
+        settings.addView(drawerAppearanceButton, Math.min(4, settings.getChildCount()), marginBottom(8));
+        settings.addView(drawerAppearance, Math.min(5, settings.getChildCount()), marginBottom(8));
+    }
+
+    private EditText appearanceInput(String hint, String fallback, String key) {
+        EditText input = new EditText(this);
+        input.setHint(hint);
+        input.setText(AppPrefs.customText(this, key, fallback));
+        input.setSingleLine(true);
+        input.setTextSize(11);
+        return input;
+    }
+
+    private void saveAppearance() {
+        AppPrefs.get(this).edit()
+                .putString(AppPrefs.KEY_HOME_TITLE, valueOf(homeTitleInput))
+                .putString(AppPrefs.KEY_HOME_SUBTITLE, valueOf(homeSubtitleInput))
+                .putString(AppPrefs.KEY_HOME_WHISPER_LABEL, valueOf(homeWhisperLabelInput))
+                .putString(AppPrefs.KEY_HOME_WHISPER_DETAIL, valueOf(homeWhisperDetailInput))
+                .putString(AppPrefs.KEY_HOME_NEXT_LABEL, valueOf(homeNextLabelInput))
+                .putString(AppPrefs.KEY_GATE_MESSAGE, valueOf(gateMessageInput))
+                .putString(AppPrefs.KEY_GUIDIAN_MESSAGE, valueOf(guidianMessageInput)).apply();
+        buildMagazinePages(); updateUI();
+        Toast.makeText(this, "外观与文案已应用", Toast.LENGTH_SHORT).show();
+    }
+
+    private String valueOf(EditText input) { return input == null ? "" : input.getText().toString().trim(); }
+
+    private void chooseBackgroundImage() {
+        try { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.setType("image/*"); i.addCategory(Intent.CATEGORY_OPENABLE); i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION); startActivityForResult(i, REQ_BACKGROUND); }
+        catch (Exception e) { Toast.makeText(this, "系统相册没有接住背景选择", Toast.LENGTH_SHORT).show(); }
+    }
+
+    private void resetBackgroundImage() {
+        AppPrefs.get(this).edit().remove(AppPrefs.KEY_BACKGROUND_URI).apply();
+        applyBackground(); Toast.makeText(this, "已恢复默认背景", Toast.LENGTH_SHORT).show();
     }
 
     private View buildTodayMagazine() {
@@ -334,12 +445,12 @@ public class MainActivity extends Activity {
         copy.setGravity(Gravity.CENTER_VERTICAL);
         copy.setPadding(dp(22), dp(24), dp(82), dp(18));
         copy.setElevation(dp(6));
-        copy.addView(label("今日窗语", 10));
-        overviewAdviceText = title("把今天，\n轻轻收进窗里。", 23);
+        copy.addView(label(AppPrefs.customText(this, AppPrefs.KEY_HOME_WHISPER_LABEL, "今日窗语"), 10));
+        overviewAdviceText = title(AppPrefs.customText(this, AppPrefs.KEY_HOME_TITLE, "今天") + "\n" + AppPrefs.customText(this, AppPrefs.KEY_HOME_WHISPER_DETAIL, "轻轻收进窗里。"), 23);
         overviewAdviceText.setLineSpacing(dp(5), 1f);
         overviewAdviceText.setMaxLines(3);
         copy.addView(overviewAdviceText, matchWrapTop(8));
-        overviewSecondaryText = body("晚风会替你放下没有完成的事。", 10.5f);
+        overviewSecondaryText = body(AppPrefs.customText(this, AppPrefs.KEY_HOME_SUBTITLE, "看一眼今天，也照顾好自己。"), 10.5f);
         overviewSecondaryText.setMaxLines(2);
         copy.addView(overviewSecondaryText, matchWrapTop(7));
         overviewMetaText = body("天气与日历摘要加载中…", 9.5f);
@@ -352,7 +463,7 @@ public class MainActivity extends Activity {
         heroWrap.addView(copy, copyLp);
 
         heroCard = heroSurface;
-        root.addView(heroWrap, fixedHeight(200, 12));
+        root.addView(heroWrap, marginBottom(12));
 
         LinearLayout mosaic = new LinearLayout(this);
         mosaic.setOrientation(LinearLayout.HORIZONTAL);
@@ -369,24 +480,24 @@ public class MainActivity extends Activity {
         focus.addView(focusProgress, focusProgressLp);
         LinearLayout focusColumn = new LinearLayout(this);
         focusColumn.setOrientation(LinearLayout.VERTICAL);
-        focusColumn.addView(focus, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(154)));
-        mosaic.addView(focusColumn, weighted(1.25f, 0));
+        focusColumn.addView(focus, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        mosaic.addView(focusColumn, weightedWrap(1.25f, 0));
         LinearLayout smalls = new LinearLayout(this);
         smalls.setOrientation(LinearLayout.VERTICAL);
         LinearLayout weather = smallStat("窗外", R.drawable.ic_cloud);
         overviewWeatherLabel = (TextView) weather.getChildAt(0);
         overviewWeatherText = (TextView) weather.getChildAt(1);
         overviewWeatherDetail = (TextView) weather.getChildAt(2);
-        smalls.addView(weather, weightedVertical(1f, 0));
+        smalls.addView(weather);
         LinearLayout next = editorialCard();
-        todayNextTitle = label("下一件事", 9);
+        todayNextTitle = label(AppPrefs.customText(this, AppPrefs.KEY_HOME_NEXT_LABEL, "下一件事"), 9);
         todayNextDetail = title("晚间无安排", 13);
         next.addView(todayNextTitle);
         next.addView(todayNextDetail, matchWrapTop(6));
         next.addView(body("把时间留给自己", 9), matchWrapTop(3));
-        smalls.addView(next, weightedVertical(1f, 8));
-        mosaic.addView(smalls, weighted(1f, 9));
-        root.addView(mosaic, fixedHeight(188, 10));
+        smalls.addView(next, marginBottom(8));
+        mosaic.addView(smalls, weightedWrap(1f, 9));
+        root.addView(mosaic, marginBottom(10));
 
         LinearLayout batteryStrip = editorialCard();
         LinearLayout batteryRow = horizontal();
@@ -502,7 +613,7 @@ public class MainActivity extends Activity {
         edit.setOnClickListener(v -> showWhisperEditor());
         whisperHead.addView(edit, new LinearLayout.LayoutParams(dp(46), dp(24)));
         whisper.addView(whisperHead);
-        sharedWhisperText = title("把今天，轻轻收进窗里。", 15);
+        sharedWhisperText = title(AppPrefs.customText(this, AppPrefs.KEY_HOME_WHISPER_DETAIL, "把今天，轻轻收进窗里。"), 15);
         sharedWhisperText.setLineSpacing(dp(3), 1f);
         whisper.addView(sharedWhisperText, matchWrapTop(12));
         sharedWhisperMetaText = body(AppPrefs.companionName(this) + "留下", 9);
@@ -529,7 +640,7 @@ public class MainActivity extends Activity {
         days.setOnClickListener(v -> showCompanionStartDatePicker());
         days.setClickable(true);
         editDay.setOnClickListener(v -> showCompanionStartDatePicker());
-        mosaic.addView(days, weighted(1.22f, 0));
+        mosaic.addView(days, weightedWrap(1.22f, 0));
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
         LinearLayout anniversary = editorialCard();
@@ -539,7 +650,7 @@ public class MainActivity extends Activity {
         companionAnniversaryText.setMaxLines(2);
         companionAnniversaryText.setLineSpacing(dp(3), 1f);
         anniversary.addView(companionAnniversaryText, matchWrapTop(7));
-        side.addView(anniversary, weightedVertical(1f, 0));
+        side.addView(anniversary, marginBottom(8));
         LinearLayout guidianTile = editorialCard();
         guidianTile.setGravity(Gravity.CENTER);
         guidianTile.setPadding(dp(12), dp(8), dp(12), dp(8));
@@ -551,9 +662,9 @@ public class MainActivity extends Activity {
         guidianTile.addView(guidianName, matchWrapTop(4));
         guidianTile.setOnClickListener(v -> openGuidianFromTile());
         guidianTile.setClickable(true);
-        side.addView(guidianTile, weightedVertical(1f, 8));
-        mosaic.addView(side, weighted(1f, 9));
-        root.addView(mosaic, fixedHeight(178, 10));
+        side.addView(guidianTile);
+        mosaic.addView(side, weightedWrap(1f, 9));
+        root.addView(mosaic, marginBottom(10));
 
         LinearLayout actionPreview = editorialCard();
         LinearLayout actionHead = horizontal();
@@ -568,8 +679,8 @@ public class MainActivity extends Activity {
         root.addView(actionPreview, marginBottom(10));
 
         root.addView(sectionHeading("更多陪伴"), marginBottom(8));
-        root.addView(actionSettingBlock("TA 的日记", "把今天看见的你，轻轻写下来。", R.drawable.ic_heart_wave, this::showDiaryHomePage), marginBottom(7));
-        root.addView(guardSettingBlock("归电", "很久没回来时，" + AppPrefs.companionName(this) + "来敲门", R.drawable.ic_clock, drawerGuidian), marginBottom(7));
+        root.addView(actionSettingBlock("TA 的日记", "把今天看见的你，轻轻写下来。", R.drawable.ic_diary, this::showDiaryHomePage), marginBottom(7));
+        root.addView(guardSettingBlock("归电", AppPrefs.customText(this, AppPrefs.KEY_GUIDIAN_MESSAGE, "很久没回来时，" + AppPrefs.companionName(this) + "来敲门"), R.drawable.ic_clock, drawerGuidian), marginBottom(7));
         root.addView(actionSettingBlock("看见", "查看屏幕并回应此刻", R.drawable.ic_eye, this::testScreenshot), marginBottom(10));
         return root;
     }
@@ -978,7 +1089,7 @@ public class MainActivity extends Activity {
 
         root.addView(sectionHeading("守护功能"), marginBottom(8));
         root.addView(label("日子与地点", 9), marginBottom(6));
-        root.addView(actionSettingBlock("守护日历", "纪念日、节日和倒数日", R.drawable.ic_clock, this::showGuardianCalendarDetailPage), marginBottom(7));
+        root.addView(actionSettingBlock("守护日历", "纪念日、节日和倒数日", R.drawable.ic_calendar, this::showGuardianCalendarDetailPage), marginBottom(7));
         root.addView(guardSettingBlock("天气地区", "家与常用地点", R.drawable.ic_cloud, drawerWeather), marginBottom(11));
 
         root.addView(label("安心规则", 9), marginBottom(6));
@@ -1411,7 +1522,7 @@ public class MainActivity extends Activity {
         return child instanceof LinearLayout ? (LinearLayout) child : null;
     }
 
-    private LinearLayout pageColumn() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(0, 0, 0, dp(108)); return l; }
+    private LinearLayout pageColumn() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(0, 0, 0, dp(140)); return l; }
     private LinearLayout cardColumn() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(dp(16), dp(15), dp(16), dp(15)); l.setBackground(UITheme.current(this).card(22, .45f)); return l; }
     private LinearLayout editorialCard() { LinearLayout l = cardColumn(); l.setElevation(dp(.5f)); return l; }
     private LinearLayout horizontal() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
@@ -1423,9 +1534,9 @@ public class MainActivity extends Activity {
     private View divider() { View v = new View(this); v.setBackgroundColor(UITheme.current(this).line); v.setAlpha(.55f); v.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1))); return v; }
     private ImageView decorativeImage(int drawable, ImageView.ScaleType scaleType) { ImageView art = new ImageView(this); art.setImageResource(drawable); art.setScaleType(scaleType); art.setTag("decorative_art"); art.setAdjustViewBounds(true); return art; }
     private LinearLayout smallStat(String text, int icon) { LinearLayout l = cardColumn(); TextView label = label(text, 9); label.setCompoundDrawablesWithIntrinsicBounds(icon, 0, 0, 0); label.setCompoundDrawablePadding(dp(5)); l.addView(label); l.addView(title("-", 17), matchWrapTop(5)); l.addView(body("读取中", 9), matchWrapTop(2)); return l; }
-    private View featureRow(String name, String detail, int icon, Runnable click) { LinearLayout row = horizontal(); row.setPadding(dp(3), dp(10), dp(3), dp(10)); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); row.addView(iv, new LinearLayout.LayoutParams(dp(28), dp(28))); LinearLayout text = new LinearLayout(this); text.setOrientation(LinearLayout.VERTICAL); text.addView(title(name, 13)); text.addView(body(detail, 9), matchWrapTop(2)); row.addView(text, weightedWrap(1f, 10)); TextView arrow = label("›", 18); row.addView(arrow); row.setOnClickListener(v -> click.run()); row.setClickable(true); row.setFocusable(true); return row; }
-    private View guardSettingBlock(String name, String detail, int icon, View panel) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(12), dp(14), dp(12)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(38), dp(38))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 13)); copy.addView(body(detail, 8), matchWrapTop(2)); row.addView(copy, weightedWrap(1f, 11)); row.addView(label("›", 18)); card.addView(row); card.setOnClickListener(v -> showFeaturePanel(name, panel)); card.setClickable(true); card.setFocusable(true); return card; }
-    private View actionSettingBlock(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(12), dp(14), dp(12)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(38), dp(38))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 13)); copy.addView(body(detail, 8), matchWrapTop(2)); row.addView(copy, weightedWrap(1f, 11)); row.addView(label("›", 18)); card.addView(row); card.setOnClickListener(v -> click.run()); card.setClickable(true); card.setFocusable(true); return card; }
+    private View featureRow(String name, String detail, int icon, Runnable click) { LinearLayout row = horizontal(); row.setPadding(dp(3), dp(11), dp(3), dp(11)); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); row.addView(iv, new LinearLayout.LayoutParams(dp(30), dp(30))); LinearLayout text = new LinearLayout(this); text.setOrientation(LinearLayout.VERTICAL); text.addView(title(name, 13)); text.addView(body(detail, 9), matchWrapTop(2)); row.addView(text, weightedWrap(1f, 10)); ImageView arrow = new ImageView(this); arrow.setImageResource(R.drawable.ic_arrow_right); arrow.setColorFilter(UITheme.current(this).primary); row.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22))); row.setOnClickListener(v -> click.run()); row.setClickable(true); row.setFocusable(true); return row; }
+    private View guardSettingBlock(String name, String detail, int icon, View panel) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(13), dp(14), dp(13)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(40), dp(40))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 14)); copy.addView(body(detail, 9), matchWrapTop(3)); row.addView(copy, weightedWrap(1f, 12)); ImageView arrow = new ImageView(this); arrow.setImageResource(R.drawable.ic_arrow_right); arrow.setColorFilter(UITheme.current(this).primary); row.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22))); card.addView(row); card.setOnClickListener(v -> showFeaturePanel(name, panel)); card.setClickable(true); card.setFocusable(true); return card; }
+    private View actionSettingBlock(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(13), dp(14), dp(13)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(40), dp(40))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 14)); copy.addView(body(detail, 9), matchWrapTop(3)); row.addView(copy, weightedWrap(1f, 12)); ImageView arrow = new ImageView(this); arrow.setImageResource(R.drawable.ic_arrow_right); arrow.setColorFilter(UITheme.current(this).primary); row.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22))); card.addView(row); card.setOnClickListener(v -> click.run()); card.setClickable(true); card.setFocusable(true); return card; }
     private View quickAction(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setGravity(Gravity.CENTER); card.setPadding(dp(8), dp(11), dp(8), dp(9)); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); card.addView(iv, new LinearLayout.LayoutParams(dp(28), dp(28))); TextView n = title(name, 12); n.setGravity(Gravity.CENTER); card.addView(n, matchWrapTop(5)); TextView d = body(detail, 8); d.setGravity(Gravity.CENTER); card.addView(d, matchWrapTop(2)); card.setOnClickListener(v -> click.run()); card.setClickable(true); return card; }
     private Button actionButton(String text, boolean primary) { Button b = new Button(this); b.setText(text); b.setTextSize(10); b.setAllCaps(false); b.setMinHeight(dp(29)); UITheme t = UITheme.current(this); b.setBackground(primary ? t.pill(true) : t.chip(false)); b.setTextColor(primary ? Color.WHITE : t.text); return b; }
     private Button iconButton(String text, String description) { Button b = actionButton(text, false); b.setContentDescription(description); b.setTextSize(16); b.setPadding(0, 0, 0, 0); return b; }
@@ -1440,7 +1551,7 @@ public class MainActivity extends Activity {
         if (drawer == null) return;
         boolean show = drawer.getVisibility() != View.VISIBLE;
         drawer.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (button != null) button.setText(title + (show ? "  ˄" : "  ›"));
+        if (button != null) button.setText(title);
         applyVisualTheme();
         updateGuardianCalendarView();
     }
@@ -1695,7 +1806,7 @@ public class MainActivity extends Activity {
         currentTab = tab;
         setVisible(sectionLife, "life".equals(tab)); setVisible(sectionSee, "see".equals(tab)); setVisible(sectionGate, "gate".equals(tab)); setVisible(sectionSettings, "settings".equals(tab));
         setVisible(sectionControl, false); setVisible(sectionDebug, false);
-        setTabSelected(tabLife, "life".equals(tab)); setTabSelected(tabSee, "see".equals(tab)); setTabSelected(tabGate, "gate".equals(tab)); setTabSelected(tabSettings, "settings".equals(tab));
+        setTabSelected(tabLife, "life".equals(tab)); setTabSelected(tabSee, "see".equals(tab)); setTabSelected(tabGate, "gate".equals(tab));
         updateHeader(tab);
         applyVisualTheme();
         View active = "life".equals(tab) ? sectionLife : ("see".equals(tab) ? sectionSee : ("gate".equals(tab) ? sectionGate : sectionSettings));
@@ -1724,22 +1835,21 @@ public class MainActivity extends Activity {
     }
     private String greeting() { int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY); return h < 5 ? "夜深了" : (h < 11 ? "早上好" : (h < 14 ? "午安" : (h < 18 ? "下午好" : (h < 23 ? "晚上好" : "夜深了")))); }
     private void setVisible(View v, boolean visible) { if (v != null) v.setVisibility(visible ? View.VISIBLE : View.GONE); }
-    private void setTabSelected(Button b, boolean selected) {
+    private void setTabSelected(View b, boolean selected) {
         if (b == null) return;
         UITheme t = UITheme.current(this);
-        b.setTextColor(selected ? t.primary : t.subtext);
+        if (b instanceof TextView) ((TextView) b).setTextColor(selected ? t.primary : t.subtext);
         b.setAlpha(selected ? 1f : .56f);
         b.setBackground(navTabBackground(t, selected));
-        b.setTextSize(9);
-        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        b.setAllCaps(false);
-        b.setMinHeight(dp(52));
-        b.setPadding(dp(6), dp(4), dp(6), dp(3));
-        b.setGravity(Gravity.CENTER);
-        tintCompoundDrawables(b, selected ? t.primary : t.subtext);
-        Drawable top = b.getCompoundDrawables()[1];
-        if (top != null) top.setBounds(0, 0, dp(22), dp(22));
-        b.setCompoundDrawablePadding(dp(1));
+        if (b instanceof TextView) {
+            TextView text = (TextView) b;
+            text.setTextSize(10); text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            text.setAllCaps(false); text.setMinHeight(dp(52)); text.setPadding(dp(6), dp(4), dp(6), dp(3)); text.setGravity(Gravity.CENTER);
+            tintCompoundDrawables(text, selected ? t.primary : t.subtext);
+            Drawable top = text.getCompoundDrawables()[1];
+            if (top != null) top.setBounds(0, 0, dp(22), dp(22));
+            text.setCompoundDrawablePadding(dp(1));
+        }
     }
 
     private Drawable navTabBackground(UITheme t, boolean selected) {
@@ -1757,12 +1867,18 @@ public class MainActivity extends Activity {
 
     private void applyBottomNavigationInsets() {
         if (bottomNav == null) return;
-        final int baseBottom = dp(6);
+        final int baseBottom = dp(8);
+        final int baseSide = dp(20);
+        final int baseTop = dp(15);
+        if (topHeader != null) topHeader.setPadding(topHeader.getPaddingLeft(), baseTop, topHeader.getPaddingRight(), topHeader.getPaddingBottom());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
             bottomNav.setOnApplyWindowInsetsListener((view, insets) -> {
+                if (topHeader != null) topHeader.setPadding(topHeader.getPaddingLeft(), baseTop + insets.getSystemWindowInsetTop(), topHeader.getPaddingRight(), topHeader.getPaddingBottom());
                 ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
                 int systemBottom = insets.getSystemWindowInsetBottom();
                 lp.bottomMargin = baseBottom + Math.max(0, systemBottom);
+                lp.leftMargin = baseSide + Math.max(0, insets.getSystemWindowInsetLeft());
+                lp.rightMargin = baseSide + Math.max(0, insets.getSystemWindowInsetRight());
                 view.setLayoutParams(lp);
                 return insets;
             });
@@ -1771,11 +1887,11 @@ public class MainActivity extends Activity {
     }
     private void bindDrawer(Button b, View drawer, String title) {
         if (b == null || drawer == null) return;
-        b.setText(title + "  ›");
+        b.setText(title);
         b.setOnClickListener(v -> {
             boolean show = drawer.getVisibility() != View.VISIBLE;
             drawer.setVisibility(show ? View.VISIBLE : View.GONE);
-            b.setText(title + (show ? "  ˄" : "  ›"));
+            b.setText(title);
             applyVisualTheme();
         });
     }
@@ -1799,10 +1915,30 @@ public class MainActivity extends Activity {
     }
 
 
+    private void applyBackground() {
+        if (mainRoot == null) return;
+        UITheme theme = UITheme.current(this);
+        mainRoot.setBackground(theme.background());
+        String raw = AppPrefs.get(this).getString(AppPrefs.KEY_BACKGROUND_URI, "");
+        boolean hasImage = raw != null && !raw.trim().isEmpty();
+        if (backgroundImage != null) {
+            if (hasImage) {
+                try { backgroundImage.setImageURI(Uri.parse(raw)); backgroundImage.setVisibility(View.VISIBLE); backgroundImage.setAlpha(.58f); }
+                catch (Exception e) { backgroundImage.setVisibility(View.GONE); }
+                if (Build.VERSION.SDK_INT >= 31) try { backgroundImage.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60) / 3f, AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60) / 3f, android.graphics.Shader.TileMode.CLAMP)); } catch (Exception ignored) { }
+            } else backgroundImage.setVisibility(View.GONE);
+        }
+        if (backgroundScrim != null) {
+            int softness = AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60);
+            int alpha = hasImage ? 185 + softness : 0;
+            backgroundScrim.setBackgroundColor(Color.argb(Math.min(235, alpha), Color.red(theme.bgTop), Color.green(theme.bgTop), Color.blue(theme.bgTop)));
+        }
+    }
+
     private void applyVisualTheme() {
         UITheme t = UITheme.current(this);
-        View root = ((ViewGroup) findViewById(android.R.id.content)).getChildAt(0);
-        if (root != null) root.setBackground(t.background());
+        View root = mainRoot != null ? mainRoot : ((ViewGroup) findViewById(android.R.id.content)).getChildAt(0);
+        applyBackground();
         getWindow().setStatusBarColor(t.bgTop);
         getWindow().setNavigationBarColor(t.bgBottom);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -1817,7 +1953,6 @@ public class MainActivity extends Activity {
         setTabSelected(tabLife, "life".equals(currentTab));
         setTabSelected(tabSee, "see".equals(currentTab));
         setTabSelected(tabGate, "gate".equals(currentTab));
-        setTabSelected(tabSettings, "settings".equals(currentTab));
         styleThemeButton(themeCreamButton, t, "奶油绿"); styleThemeButton(themeBlueButton, t, "雾蓝白"); styleThemeButton(themePeachButton, t, "白桃粉"); styleThemeButton(themeNightButton, t, "夜航黑"); styleThemeButton(themeMintButton, t, "薄荷透明"); styleThemeButton(themePurpleButton, t, "星云紫");
         styleGuidianThemeButton(guidianThemeDuskButton, t, "粉色"); styleGuidianThemeButton(guidianThemeCloudButton, t, "白色"); styleGuidianThemeButton(guidianThemeBerryButton, t, "黑色");
         if (bottomNav != null) { bottomNav.setBackground(t.navBar()); bottomNav.setElevation(dp(.8f)); }
@@ -1835,7 +1970,7 @@ public class MainActivity extends Activity {
         for (TextView value : statValues) if (value != null) value.setTextColor(t.text);
         TextView[] statDetails = new TextView[]{overviewBatteryDetail, overviewAppDetail, overviewScreenDetail, overviewWeatherDetail};
         for (TextView detail : statDetails) if (detail != null) detail.setTextColor(t.subtext);
-        if (tabSettings != null) { tabSettings.setBackground(t.chip("settings".equals(currentTab))); tabSettings.setPadding(dp(7), dp(7), dp(7), dp(7)); tintCompoundDrawables(tabSettings, t.primary); }
+        if (tabSettings != null) { tabSettings.setBackground(t.chip("settings".equals(currentTab))); tabSettings.setColorFilter(t.primary); tabSettings.setPadding(0, 0, 0, 0); }
         styleDrawerButton(drawerLifeDetailsButton, t); styleDrawerButton(drawerThemeButton, t); styleDrawerButton(drawerNowStateButton, t); styleDrawerButton(drawerCalendarButton, t); styleDrawerButton(drawerAppGateButton, t); styleDrawerButton(drawerWeatherButton, t); styleDrawerButton(drawerGuidianButton, t); styleDrawerButton(drawerGuidianSettingsButton, t); styleDrawerButton(drawerConnectionButton, t); styleDrawerButton(drawerPermissionButton, t); styleDrawerButton(drawerControlTestButton, t); styleDrawerButton(drawerKnownAppsButton, t); styleDrawerButton(drawerHomeModeButton, t); styleDrawerButton(drawerGateAddButton, t); styleDrawerButton(drawerReminderButton, t); styleDrawerButton(drawerCycleButton, t); styleDrawerButton(drawerDebugButton, t);
         if (statusText != null) { statusText.setBackground(t.soft(18)); statusText.setPadding(dp(12), dp(7), dp(12), dp(7)); }
         if (testGuidianButton != null) { testGuidianButton.setBackground(t.pill(true)); testGuidianButton.setTextColor(Color.WHITE); }
@@ -1958,7 +2093,7 @@ public class MainActivity extends Activity {
             } else if (tv instanceof EditText) {
                 tv.setTextColor(t.text); tv.setHintTextColor(t.subtext); tv.setTextSize(Math.min(13, tv.getTextSize() / getResources().getDisplayMetrics().scaledDensity));
             } else {
-                tv.setTextColor(tv.getTextSize() >= dp(16) ? t.text : t.subtext);
+                tv.setTextColor(tv.getTextSize() >= 16f * getResources().getDisplayMetrics().scaledDensity ? t.text : t.subtext);
             }
         }
         if (v instanceof ViewGroup) {
@@ -2232,6 +2367,13 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "日记本封面已换好", Toast.LENGTH_SHORT).show(); showDiaryHomePage();
         } else if (requestCode == REQ_DIARY_EXPORT && resultCode == RESULT_OK && data != null && data.getData() != null) exportDiaryTo(data.getData());
         else if (requestCode == REQ_DIARY_IMPORT && resultCode == RESULT_OK && data != null && data.getData() != null) importDiaryFrom(data.getData());
+        if (requestCode == REQ_BACKGROUND && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            Uri uri = data.getData();
+            try { getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) { }
+            AppPrefs.get(this).edit().putString(AppPrefs.KEY_BACKGROUND_URI, uri.toString()).apply();
+            applyBackground();
+            Toast.makeText(this, "背景图已应用，仅保存在本机", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void startCompanionService() {
@@ -2266,7 +2408,6 @@ public class MainActivity extends Activity {
                 updateUI();
             });
         });
-        updateUI();
     }
     private void testAlarm() { Calendar c = Calendar.getInstance(); c.add(Calendar.MINUTE, 1); try { Intent i = new Intent(AlarmClock.ACTION_SET_ALARM); i.putExtra(AlarmClock.EXTRA_HOUR, c.get(Calendar.HOUR_OF_DAY)); i.putExtra(AlarmClock.EXTRA_MINUTES, c.get(Calendar.MINUTE)); i.putExtra(AlarmClock.EXTRA_MESSAGE, "掌心窗测试闹钟：" + AppPrefs.userName(this)); i.putExtra(AlarmClock.EXTRA_VIBRATE, true); i.putExtra(AlarmClock.EXTRA_SKIP_UI, true); startActivity(i); DebugState.append(this, "已请求设置一分钟后的测试闹钟"); } catch (Exception e) { DebugState.append(this, "测试闹钟失败：" + e.getClass().getSimpleName()); Toast.makeText(this, "闹钟 App 没接住请求", Toast.LENGTH_SHORT).show(); } }
     private void testNotification() { saveSettings(); boolean ok = CompanionService.showReminderNotification(this, "掌心窗悬浮横幅测试", AppPrefs.userName(this) + "看到了顶部横幅，就说明通知通道正常。"); DebugState.append(this, ok ? "已发送悬浮横幅测试提醒" : "悬浮横幅/通知失败：请允许掌心窗发送通知"); Toast.makeText(this, ok ? "已发送横幅测试" : "请先允许通知权限", Toast.LENGTH_SHORT).show(); updateUI(); }
@@ -2548,12 +2689,12 @@ public class MainActivity extends Activity {
         if (calendarSummaryText != null) calendarSummaryText.setText("把重要日子轻轻放进窗边。");
         if (calendarDetailText != null) calendarDetailText.setText("标题、日期、分组和备注填好后保存。农历生日、七夕和中秋记得勾选农历日期。");
         updateGuardianCalendarView();
-        if (drawerCalendarButton != null && (drawerCalendar == null || drawerCalendar.getVisibility() != View.VISIBLE)) drawerCalendarButton.setText(CalendarState.summaryLine(this) + "  ›");
-        if (drawerWeatherButton != null && (drawerWeather == null || drawerWeather.getVisibility() != View.VISIBLE)) drawerWeatherButton.setText(WeatherState.summaryLine(this) + "  ›");
+        if (drawerCalendarButton != null && (drawerCalendar == null || drawerCalendar.getVisibility() != View.VISIBLE)) drawerCalendarButton.setText(CalendarState.summaryLine(this));
+        if (drawerWeatherButton != null && (drawerWeather == null || drawerWeather.getVisibility() != View.VISIBLE)) drawerWeatherButton.setText(WeatherState.summaryLine(this));
         if (weatherLocationsText != null) weatherLocationsText.setText(WeatherState.locationsText(this));
         if (knownAppsText != null) knownAppsText.setText(AppPrefs.knownAppsText(this));
         if (homeModeStatusText != null) homeModeStatusText.setText(HomeMode.pretty(this));
-        if (drawerAppGateButton != null && (drawerAppGate == null || drawerAppGate.getVisibility() != View.VISIBLE)) drawerAppGateButton.setText(AppGate.summaryLine(this) + "  ›");
+        if (drawerAppGateButton != null && (drawerAppGate == null || drawerAppGate.getVisibility() != View.VISIBLE)) drawerAppGateButton.setText(AppGate.summaryLine(this));
         if (gateStatusText != null) gateStatusText.setText(AppGate.prettyClean(this));
         if (debugText != null) debugText.setText(DebugState.get(this));
         if (themeText != null) themeText.setText("当前主题：" + AppPrefs.get(this).getString(AppPrefs.KEY_THEME, "白桃粉") + "\n点击后即时切换背景、卡片、按钮和底部导航。守护日历主色：#B8A8D8。");
@@ -2573,8 +2714,8 @@ public class MainActivity extends Activity {
             lastCompanionSyncAt = now;
             CompanionWindowState.sync(this, 20, (state, error) -> runOnUiThread(() -> renderCompanionState(state)));
         }
-        if (drawerGuidianButton != null && (drawerGuidian == null || drawerGuidian.getVisibility() != View.VISIBLE)) drawerGuidianButton.setText("归电  ›");
-        if (drawerGuidianSettingsButton != null && (drawerGuidianSettings == null || drawerGuidianSettings.getVisibility() != View.VISIBLE)) drawerGuidianSettingsButton.setText("归电设置  ›");
+        if (drawerGuidianButton != null && (drawerGuidian == null || drawerGuidian.getVisibility() != View.VISIBLE)) drawerGuidianButton.setText("归电");
+        if (drawerGuidianSettingsButton != null && (drawerGuidianSettings == null || drawerGuidianSettings.getVisibility() != View.VISIBLE)) drawerGuidianSettingsButton.setText("归电设置");
         updateVersionUi();
         applyVisualTheme();
         updateGuardianCalendarView();
@@ -2712,7 +2853,9 @@ public class MainActivity extends Activity {
         JSONObject nearest = firstCalendarItem(calendar, "active_banners");
         if (nearest == null) nearest = firstCalendarItem(calendar, "nearest");
 
-        String primary = CompanionWindowState.whisper(this).optString("content", "把今天，轻轻收进窗里。");
+        String remoteWhisper = CompanionWindowState.whisper(this).optString("content", "把今天，轻轻收进窗里。");
+        String customTitle = AppPrefs.get(this).getString(AppPrefs.KEY_HOME_TITLE, "").trim();
+        String primary = customTitle.isEmpty() ? remoteWhisper : customTitle;
 
         String secondary;
         if (battery >= 0 && battery <= 40 && !charging) secondary = "找个顺手的时刻，让手机慢慢充上电。";
@@ -2723,9 +2866,10 @@ public class MainActivity extends Activity {
         }
 
         if (overviewAdviceText != null) overviewAdviceText.setText(formatHeroMessage(primary));
-        if (overviewSecondaryText != null) overviewSecondaryText.setText(secondary);
+        String customSubtitle = AppPrefs.get(this).getString(AppPrefs.KEY_HOME_SUBTITLE, "").trim();
+        if (overviewSecondaryText != null) overviewSecondaryText.setText(customSubtitle.isEmpty() ? secondary : customSubtitle);
         if (overviewMetaText != null) overviewMetaText.setText(weatherBrief(s) + "   ·   " + calendarBrief(nearest));
-        if (todayNextTitle != null) todayNextTitle.setText("下一件事");
+        if (todayNextTitle != null) todayNextTitle.setText(AppPrefs.customText(this, AppPrefs.KEY_HOME_NEXT_LABEL, "下一件事"));
         if (todayNextDetail != null) todayNextDetail.setText(nearest == null ? "晚间无安排" : nearest.optString("title", "临近日子"));
     }
 

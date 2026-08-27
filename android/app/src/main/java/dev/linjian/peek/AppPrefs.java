@@ -26,6 +26,16 @@ public class AppPrefs {
     public static final String KEY_WEATHER_NOTE = "life_weather_note";
     public static final String KEY_WEATHER_LOCATIONS = "weather_locations_lines";
     public static final String KEY_THEME = "ui_theme";
+    public static final String KEY_BACKGROUND_URI = "ui_background_uri";
+    public static final String KEY_BACKGROUND_SOFTNESS = "ui_background_softness";
+    public static final String KEY_GLASS_ALPHA = "ui_glass_alpha";
+    public static final String KEY_HOME_TITLE = "ui_home_title";
+    public static final String KEY_HOME_SUBTITLE = "ui_home_subtitle";
+    public static final String KEY_HOME_WHISPER_LABEL = "ui_home_whisper_label";
+    public static final String KEY_HOME_WHISPER_DETAIL = "ui_home_whisper_detail";
+    public static final String KEY_HOME_NEXT_LABEL = "ui_home_next_label";
+    public static final String KEY_GATE_MESSAGE = "ui_gate_message";
+    public static final String KEY_GUIDIAN_MESSAGE = "ui_guidian_message";
     /** Privacy is opt-in: existing installs migrate to the safe default rather than enhanced access. */
     public static final String KEY_PRIVACY_MODE = "privacy_mode";
     public static final String PRIVACY_MODE_LOW = "low";
@@ -77,6 +87,16 @@ public class AppPrefs {
     public static boolean isEnhancedPrivacy(Context ctx) { return PRIVACY_MODE_ENHANCED.equals(privacyMode(ctx)); }
     public static void setPrivacyMode(Context ctx, String mode) {
         get(ctx).edit().putString(KEY_PRIVACY_MODE, PRIVACY_MODE_ENHANCED.equals(mode) ? PRIVACY_MODE_ENHANCED : PRIVACY_MODE_LOW).apply();
+    }
+
+    public static String customText(Context ctx, String key, String fallback) {
+        String value = get(ctx).getString(key, fallback);
+        return value == null || value.trim().isEmpty() ? fallback : value.trim();
+    }
+
+    public static int customInt(Context ctx, String key, int fallback, int min, int max) {
+        int value = get(ctx).getInt(key, fallback);
+        return Math.max(min, Math.min(max, value));
     }
 
     /** User-supplied public deployment address; no built-in private endpoint. */

@@ -328,8 +328,8 @@ public class AppGate {
                 root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
                 TextView msg = new TextView(app);
-                String text = lock.optString("message", "先休息一下，等会儿再回来。");
-                if (text == null || text.trim().isEmpty()) text = lock.optString("reason", "先休息一下，等会儿再回来。");
+                String text = lock.optString("message", AppPrefs.customText(ctx, AppPrefs.KEY_GATE_MESSAGE, "先休息一下，等会儿再回来。"));
+                if (text == null || text.trim().isEmpty()) text = lock.optString("reason", AppPrefs.customText(ctx, AppPrefs.KEY_GATE_MESSAGE, "先休息一下，等会儿再回来。"));
                 msg.setText(text + "\n到 " + lock.optString("locked_until_local", "稍后") + " 自动解除。");
                 msg.setTextColor(0xFF596D66);
                 msg.setTextSize(13);
