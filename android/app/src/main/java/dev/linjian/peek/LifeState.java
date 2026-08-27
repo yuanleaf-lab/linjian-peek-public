@@ -58,7 +58,15 @@ public final class LifeState {
     }
 
     /** Poller entrypoint: only a package/app-label event, never an accessibility event or page detail. */
-    public static void recordForegroundFromUsage(Context ctx) { if (hasUsagePermission(ctx)) { CurrentApp app = currentApp(ctx, System.currentTimeMillis()); if (!app.packageName.isEmpty()) ActivityEventStore.recordForegroundChange(ctx, app.packageName); } }
+    public static void recordForegroundFromUsage(Context ctx) {
+        if (!hasUsagePermission(ctx)) return;
+        CurrentApp app = currentApp(ctx, System.currentTimeMillis());
+        if (app.packageName.isEmpty()) return;
+        ActivityEventStore.recordForegroundChange(ctx, app.packageName);
+        // Low privacy mode uses the same unified usage poll for AppGate. It never
+        // falls back to accessibility events or ScreenshotService.currentPackage().
+        if (AppPrefs.isLowPrivacy(ctx)) AppGate.onForegroundPackage(ctx, app.packageName);
+    }
     public static boolean hasUsagePermission(Context ctx) { try { AppOpsManager appOps = (AppOpsManager) ctx.getSystemService(Context.APP_OPS_SERVICE); return appOps != null && appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), ctx.getPackageName()) == AppOpsManager.MODE_ALLOWED; } catch (Exception ignored) { return false; } }
     public static String appLabelPublic(Context ctx, String pkg) { return appLabel(ctx, pkg); }
 

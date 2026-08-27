@@ -39,7 +39,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/** 应用门禁：用无障碍监听前台 App，打开被锁 App 时弹出锁定页。 */
+/** 应用门禁：low 模式由 UsageStats 驱动，增强模式可叠加无障碍能力。 */
 public class AppGate {
     public static final String KEY_STATE = "app_gate_state_v1";
     public static final String KEY_ENABLED = "app_gate_enabled";
@@ -277,7 +277,10 @@ public class AppGate {
             lastGatePackage = pkg; lastGateAt = now;
             String mode = lock.optString("mode", "medium");
             ScreenshotService svc = ScreenshotService.getInstance();
-            if ("strict".equals(mode) && svc != null) svc.doHome();
+            if ("strict".equals(mode)) {
+                if (AppPrefs.isEnhancedPrivacy(ctx) && svc != null) svc.doHome();
+                else log(ctx, "门禁 strict：low privacy fallback（不调用无障碍回桌面）");
+            }
             if (canDrawOverlay(ctx)) showOverlayLock(ctx, pkg, lock);
             else showLockActivity(ctx, pkg);
             log(ctx, "门禁拦截：" + lock.optString("app_name", pkg) + (canDrawOverlay(ctx) ? "（悬浮层）" : ""));
@@ -343,7 +346,15 @@ public class AppGate {
                 rowLp.topMargin = dp(ctx, 16);
 
                 Button home = overlayButton(app, "回到桌面", true);
-                home.setOnClickListener(v -> { ScreenshotService svc = ScreenshotService.getInstance(); if (svc != null) svc.doHome(); removeOverlay(); });
+                home.setOnClickListener(v -> {
+                    ScreenshotService svc = ScreenshotService.getInstance();
+                    if (AppPrefs.isEnhancedPrivacy(app) && svc != null) svc.doHome();
+                    else {
+                        log(app, "门禁 overlay 回桌面：low privacy fallback");
+                        showLockActivity(app, pkg);
+                    }
+                    removeOverlay();
+                });
                 row.addView(home, new LinearLayout.LayoutParams(0, -1, 1f));
 
                 Button detail = overlayButton(app, "查看详情", false);

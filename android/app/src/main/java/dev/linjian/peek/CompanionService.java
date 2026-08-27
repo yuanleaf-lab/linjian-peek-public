@@ -304,7 +304,7 @@ public class CompanionService extends Service {
                 || "peek".equals(action) || "home".equals(action) || "back".equals(action) || "recents".equals(action)
                 || "screen_off".equals(action) || "turn_screen_off".equals(action) || "lock_screen".equals(action)
                 || "phone_screen_off".equals(action) || "tap".equals(action) || "swipe".equals(action)
-                || "open_app".equals(action) || isAppGateAction(action);
+                || "open_app".equals(action);
     }
 
     private static void executeSequence(Context ctx, String id, JSONObject cmd, String serverUrl, String token) {
