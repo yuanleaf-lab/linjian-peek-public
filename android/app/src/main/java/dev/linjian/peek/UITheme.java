@@ -18,7 +18,7 @@ public class UITheme {
     public static UITheme current(Context ctx) {
         String n = AppPrefs.get(ctx).getString(AppPrefs.KEY_THEME, "雾蓝白");
         UITheme theme = byName(n);
-        return theme.withGlassAlpha(AppPrefs.customInt(ctx, AppPrefs.KEY_GLASS_ALPHA, 88, 55, 100));
+        return theme.withGlassAlpha(AppPrefs.customInt(ctx, AppPrefs.KEY_GLASS_ALPHA, 64, 45, 80));
     }
 
     public static UITheme byName(String n) {
@@ -49,9 +49,8 @@ public class UITheme {
     }
 
     private UITheme withGlassAlpha(int percent) {
-        int clamped = Math.max(55, Math.min(100, percent));
-        int visualPercent = 55 + Math.round((clamped - 55) * 0.65f);
-        int a = visualPercent * 255 / 100;
+        int clamped = Math.max(45, Math.min(80, percent));
+        int a = clamped * 255 / 100;
         return new UITheme(name, bgTop, bgBottom, withAlpha(card, a), withAlpha(cardSoft, Math.min(255, a + 18)),
                 primary, primarySoft, accent, text, subtext, line, danger, dark);
     }

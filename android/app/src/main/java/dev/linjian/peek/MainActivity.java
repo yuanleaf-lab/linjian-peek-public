@@ -98,7 +98,7 @@ public class MainActivity extends Activity {
     private LinearLayout drawerAppearance;
     private Button drawerAppearanceButton, chooseBackgroundButton, resetBackgroundButton, saveAppearanceButton;
     private EditText homeTitleInput, homeSubtitleInput, homeWhisperLabelInput, homeWhisperDetailInput, homeNextLabelInput, gateMessageInput, guidianMessageInput;
-    private SeekBar backgroundSoftnessSeek, glassAlphaSeek;
+    private SeekBar backgroundSoftnessSeek, backgroundScrimSeek, glassAlphaSeek;
     private EditText serverUrl, tokenInput, deviceInput, intervalInput, cityInput, weatherInput, userNameInput, companionNameInput;
     private EditText weatherAliasInput, weatherCityInput, weatherNoteInput, calendarTitleInput, calendarDateInput, calendarGroupInput, calendarNoteInput;
     private EditText batteryThresholdInput, screenThresholdInput, waterIntervalInput, restIntervalInput;
@@ -108,6 +108,7 @@ public class MainActivity extends Activity {
     private boolean serviceRunning = false;
     private String currentTab = "life";
     private boolean weatherFetching = false;
+    private String lastBackgroundLog = "";
     private long lastWeatherFetchAt = 0L;
     private static final int REQ_GUIDIAN_AVATAR = 230723;
     private static final int REQ_DIARY_COVER = 230724;
@@ -355,17 +356,26 @@ public class MainActivity extends Activity {
         backgroundSoftnessSeek = new SeekBar(this); backgroundSoftnessSeek.setMax(60);
         backgroundSoftnessSeek.setProgress(AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60));
         drawerAppearance.addView(backgroundSoftnessSeek);
+        drawerAppearance.addView(body("背景蒙层", 9), matchWrapTop(4));
+        backgroundScrimSeek = new SeekBar(this); backgroundScrimSeek.setMax(90);
+        backgroundScrimSeek.setProgress(AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SCRIM, 26, 0, 90));
+        drawerAppearance.addView(backgroundScrimSeek);
         drawerAppearance.addView(body("玻璃透明度", 9), matchWrapTop(4));
-        glassAlphaSeek = new SeekBar(this); glassAlphaSeek.setMax(45);
-        glassAlphaSeek.setProgress(AppPrefs.customInt(this, AppPrefs.KEY_GLASS_ALPHA, 88, 55, 100) - 55);
+        glassAlphaSeek = new SeekBar(this); glassAlphaSeek.setMax(35);
+        glassAlphaSeek.setProgress(AppPrefs.customInt(this, AppPrefs.KEY_GLASS_ALPHA, 64, 45, 80) - 45);
         drawerAppearance.addView(glassAlphaSeek);
         backgroundSoftnessSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar s, int p, boolean fromUser) { if (fromUser) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_BACKGROUND_SOFTNESS, p).apply(); applyBackground(); } }
             public void onStartTrackingTouch(SeekBar s) {}
             public void onStopTrackingTouch(SeekBar s) {}
         });
+        backgroundScrimSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int p, boolean fromUser) { if (fromUser) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_BACKGROUND_SCRIM, p).apply(); applyBackground(); } }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
         glassAlphaSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int p, boolean fromUser) { if (fromUser) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_GLASS_ALPHA, p + 55).apply(); buildMagazinePages(); updateUI(); } }
+            public void onProgressChanged(SeekBar s, int p, boolean fromUser) { if (fromUser) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_GLASS_ALPHA, p + 45).apply(); buildMagazinePages(); updateUI(); } }
             public void onStartTrackingTouch(SeekBar s) {}
             public void onStopTrackingTouch(SeekBar s) {}
         });
@@ -408,7 +418,7 @@ public class MainActivity extends Activity {
 
     private void resetBackgroundImage() {
         AppPrefs.get(this).edit().remove(AppPrefs.KEY_BACKGROUND_URI).apply();
-        applyBackground(); Toast.makeText(this, "已恢复默认背景", Toast.LENGTH_SHORT).show();
+        applyBackground(); logBackground("background_restore_ok"); Toast.makeText(this, "已恢复默认背景", Toast.LENGTH_SHORT).show();
     }
 
     private View buildTodayMagazine() {
@@ -1913,28 +1923,55 @@ public class MainActivity extends Activity {
     }
 
 
-    private void applyBackground() {
-        if (mainRoot == null) return;
+    private boolean applyBackground() {
+        if (mainRoot == null) return false;
         UITheme theme = UITheme.current(this);
         mainRoot.setBackground(theme.background());
         String raw = AppPrefs.get(this).getString(AppPrefs.KEY_BACKGROUND_URI, "");
         boolean hasImage = raw != null && !raw.trim().isEmpty();
+        boolean imageApplied = false;
         if (backgroundImage != null) {
             backgroundImage.setZ(0f);
+            backgroundImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
             if (hasImage) {
-                try { backgroundImage.setImageURI(Uri.parse(raw)); backgroundImage.setVisibility(View.VISIBLE); backgroundImage.setAlpha(.58f); }
-                catch (Exception e) { backgroundImage.setVisibility(View.GONE); }
-                if (Build.VERSION.SDK_INT >= 31) try { backgroundImage.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60) / 3f, AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60) / 3f, android.graphics.Shader.TileMode.CLAMP)); } catch (Exception ignored) { }
-            } else backgroundImage.setVisibility(View.GONE);
+                try {
+                    backgroundImage.setImageURI(Uri.parse(raw));
+                    Drawable drawable = backgroundImage.getDrawable();
+                    if (drawable == null || drawable.getIntrinsicWidth() <= 0 || drawable.getIntrinsicHeight() <= 0) throw new IllegalStateException("drawable_unavailable");
+                    backgroundImage.setVisibility(View.VISIBLE);
+                    backgroundImage.setAlpha(1f);
+                    float blur = AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60) / 3f;
+                    if (Build.VERSION.SDK_INT >= 31) backgroundImage.setRenderEffect(blur > 0f ? android.graphics.RenderEffect.createBlurEffect(blur, blur, android.graphics.Shader.TileMode.CLAMP) : null);
+                    imageApplied = true;
+                    logBackground("background_decode_ok");
+                } catch (Exception e) {
+                    backgroundImage.setImageDrawable(null);
+                    backgroundImage.setVisibility(View.GONE);
+                    if (Build.VERSION.SDK_INT >= 31) backgroundImage.setRenderEffect(null);
+                    logBackground("background_decode_failed");
+                }
+            } else {
+                backgroundImage.setImageDrawable(null);
+                backgroundImage.setVisibility(View.GONE);
+                if (Build.VERSION.SDK_INT >= 31) backgroundImage.setRenderEffect(null);
+                logBackground("background_restore_ok");
+            }
         }
         if (backgroundScrim != null) {
             backgroundScrim.setZ(1f);
-            int softness = AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60);
-            int alpha = hasImage ? 185 + softness : 0;
-            backgroundScrim.setBackgroundColor(Color.argb(Math.min(235, alpha), Color.red(theme.bgTop), Color.green(theme.bgTop), Color.blue(theme.bgTop)));
+            int alpha = imageApplied ? AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SCRIM, 26, 0, 90) : 0;
+            backgroundScrim.setBackgroundColor(Color.argb(alpha, Color.red(theme.bgTop), Color.green(theme.bgTop), Color.blue(theme.bgTop)));
         }
         View content = findViewById(R.id.mainContent);
         if (content != null) content.setZ(2f);
+        if (imageApplied) logBackground("background_apply_ok");
+        return imageApplied;
+    }
+
+    private void logBackground(String event) {
+        if (event.equals(lastBackgroundLog)) return;
+        lastBackgroundLog = event;
+        DebugState.appendAndLog(this, event);
     }
 
     private void applyVisualTheme() {
@@ -2371,10 +2408,19 @@ public class MainActivity extends Activity {
         else if (requestCode == REQ_DIARY_IMPORT && resultCode == RESULT_OK && data != null && data.getData() != null) importDiaryFrom(data.getData());
         if (requestCode == REQ_BACKGROUND && resultCode == RESULT_OK && data != null && data.getData() != null) {
             Uri uri = data.getData();
-            try { getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) { }
+            int grants = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            try {
+                if ((grants & Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0) throw new SecurityException("missing_read_grant");
+                getContentResolver().takePersistableUriPermission(uri, grants);
+            } catch (Exception e) {
+                logBackground("background_decode_failed");
+                Toast.makeText(this, "背景图访问权限未保留，请重新选择", Toast.LENGTH_LONG).show();
+                return;
+            }
             AppPrefs.get(this).edit().putString(AppPrefs.KEY_BACKGROUND_URI, uri.toString()).apply();
-            applyBackground();
-            Toast.makeText(this, "背景图已应用，仅保存在本机", Toast.LENGTH_SHORT).show();
+            logBackground("background_uri_saved");
+            if (applyBackground()) Toast.makeText(this, "背景图已应用，仅保存在本机", Toast.LENGTH_SHORT).show();
+            else Toast.makeText(this, "背景图读取失败，请重新选择", Toast.LENGTH_LONG).show();
         }
     }
 

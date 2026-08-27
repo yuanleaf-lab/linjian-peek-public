@@ -28,6 +28,7 @@ public class AppPrefs {
     public static final String KEY_THEME = "ui_theme";
     public static final String KEY_BACKGROUND_URI = "ui_background_uri";
     public static final String KEY_BACKGROUND_SOFTNESS = "ui_background_softness";
+    public static final String KEY_BACKGROUND_SCRIM = "ui_background_scrim";
     public static final String KEY_GLASS_ALPHA = "ui_glass_alpha";
     public static final String KEY_HOME_TITLE = "ui_home_title";
     public static final String KEY_HOME_SUBTITLE = "ui_home_subtitle";
