@@ -1,5 +1,6 @@
 name: Build Android Debug APK
 
+# Trigger build after enabling Actions
 on:
   workflow_dispatch:
   push:
