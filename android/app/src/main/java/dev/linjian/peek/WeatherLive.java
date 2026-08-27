@@ -24,7 +24,7 @@ public class WeatherLive {
     private static final String KEY_CITY = "weather_live_city";
     private static final String KEY_JSON = "weather_live_json";
     private static final String KEY_AT = "weather_live_at";
-    private static final long DEFAULT_FRESH_MS = 45L * 60L * 1000L;
+    private static final long DEFAULT_FRESH_MS = 15L * 60L * 1000L;
 
     public interface Callback { void onResult(JSONObject weather); }
 

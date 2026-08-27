@@ -97,6 +97,7 @@ public class MainActivity extends Activity {
     private ImageView backgroundImage;
     private LinearLayout drawerAppearance;
     private Button drawerAppearanceButton, chooseBackgroundButton, resetBackgroundButton, saveAppearanceButton;
+    private TextView weatherCitySettingsSummary;
     private EditText homeTitleInput, homeSubtitleInput, homeWhisperLabelInput, homeWhisperDetailInput, homeNextLabelInput, gateMessageInput, guidianMessageInput;
     private SeekBar backgroundSoftnessSeek, backgroundScrimSeek, glassAlphaSeek;
     private EditText serverUrl, tokenInput, deviceInput, intervalInput, cityInput, weatherInput, userNameInput, companionNameInput;
@@ -107,6 +108,7 @@ public class MainActivity extends Activity {
     private EditText guidianIntervalInput, guidianCooldownInput, guidianDailyMaxInput, guidianQuietStartInput, guidianQuietEndInput, guidianTargetPackageInput, guidianPromptInput, guidianReasonInput;
     private boolean serviceRunning = false;
     private String currentTab = "life";
+    private int bottomNavigationClearance = 0;
     private boolean weatherFetching = false;
     private String lastBackgroundLog = "";
     private long lastWeatherFetchAt = 0L;
@@ -118,10 +120,11 @@ public class MainActivity extends Activity {
     private static boolean openingShownForProcess = false;
     private SoftAvatarView companionAvatarView;
     private ImageView companionRestArt;
-    private TextView companionPresenceText, sharedWhisperText, sharedWhisperMetaText, companionActionsPreview, todayJourneyText, guardOverviewText;
+    private TextView companionPresenceText, sharedWhisperText, sharedWhisperMetaText, companionActionsPreview, guardOverviewText;
     private TextView todayNextTitle, todayNextDetail, companionDaysText, companionSinceText, companionAnniversaryText, guardDeviceStatusText, guardRecordText;
     private TextView calendarHeroTitle, calendarHeroDetail, calendarMonthTitle, calendarSelectedTitle, calendarSelectedDetail;
     private LinearLayout calendarGrid, calendarSelectedEventsContainer;
+    private LinearLayout todayJourneyList;
     private Calendar calendarVisibleMonth = Calendar.getInstance();
     private int calendarSelectedDay = Calendar.getInstance().get(Calendar.DAY_OF_MONTH);
     private boolean guardianCalendarDetailOpen = false;
@@ -172,7 +175,7 @@ public class MainActivity extends Activity {
         if (sequenceTestButton != null) sequenceTestButton.setOnClickListener(v -> testLocalSequence());
         if (refreshGateButton != null) refreshGateButton.setOnClickListener(v -> { updateUI(); Toast.makeText(this, "已刷新守护状态", Toast.LENGTH_SHORT).show(); });
         if (addGateAppButton != null) addGateAppButton.setOnClickListener(v -> addGateApp());
-        if (addWeatherLocationButton != null) addWeatherLocationButton.setOnClickListener(v -> addWeatherLocation(false));
+        if (addWeatherLocationButton != null) addWeatherLocationButton.setOnClickListener(v -> addWeatherLocation(true));
         if (setCurrentWeatherButton != null) setCurrentWeatherButton.setOnClickListener(v -> addWeatherLocation(true));
         if (checkUpdateButton != null) checkUpdateButton.setOnClickListener(v -> checkForUpdates(true));
         if (downloadUpdateButton != null) downloadUpdateButton.setOnClickListener(v -> downloadLatestApk());
@@ -311,7 +314,47 @@ public class MainActivity extends Activity {
             settings.addView(diaryBackupButton, 2, marginBottom(8));
             settings.addView(diaryBackup, 3, marginBottom(8));
             addAppearancePanel(settings);
+            addWeatherCitySettingsEntry(settings);
         }
+    }
+
+    private void addWeatherCitySettingsEntry(LinearLayout settings) {
+        LinearLayout card = editorialCard();
+        card.setTag("dynamic_weather_city");
+        card.setMinimumHeight(dp(64));
+        card.setPadding(dp(18), dp(12), dp(16), dp(12));
+
+        LinearLayout row = horizontal();
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_cloud);
+        icon.setColorFilter(UITheme.current(this).primary);
+        icon.setBackground(UITheme.current(this).soft(18));
+        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
+        icon.setTag("theme_icon");
+        row.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(40)));
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setGravity(Gravity.CENTER_VERTICAL);
+        copy.addView(title("天气城市", 16));
+        weatherCitySettingsSummary = body(weatherCitySettingsText(), 12);
+        copy.addView(weatherCitySettingsSummary, matchWrapTop(3));
+        row.addView(copy, weightedWrap(1f, 12));
+
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(R.drawable.ic_arrow_right);
+        arrow.setColorFilter(UITheme.current(this).primary);
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        card.addView(row);
+        card.setOnClickListener(v -> showFeaturePanel("天气城市", drawerWeather));
+        card.setClickable(true);
+        card.setFocusable(true);
+        settings.addView(card, 4, marginBottom(8));
+    }
+
+    private String weatherCitySettingsText() {
+        String city = WeatherState.currentLocation(this).optString("city", "");
+        return "当前城市：" + (city.isEmpty() ? "未设置" : city);
     }
 
     private void addAppearancePanel(LinearLayout settings) {
@@ -528,11 +571,10 @@ public class MainActivity extends Activity {
         root.addView(nowCard, marginBottom(12));
 
         root.addView(sectionRow("今日轨迹", "全部", this::showTodayJourneyDialog), marginBottom(7));
-        todayJourneyText = body("今天的轨迹正在整理。", 10);
-        todayJourneyText.setLineSpacing(dp(4), 1f);
-        todayJourneyText.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
         LinearLayout journeyCard = editorialCard();
-        journeyCard.addView(todayJourneyText);
+        todayJourneyList = new LinearLayout(this);
+        todayJourneyList.setOrientation(LinearLayout.VERTICAL);
+        journeyCard.addView(todayJourneyList);
         root.addView(journeyCard, marginBottom(12));
 
         LinearLayout links = editorialCard();
@@ -540,8 +582,7 @@ public class MainActivity extends Activity {
         quickSeeButton = featureRow("陪伴", "看" + AppPrefs.companionName(this) + "留下的话与行动", R.drawable.ic_heart_wave, () -> showTab("see"));
         quickGuardButton = featureRow("守护", "重要的人和日子都在这里", R.drawable.ic_shield, () -> showTab("gate"));
         links.addView(quickSeeButton, matchWrapTop(8));
-        links.addView(divider());
-        links.addView(quickGuardButton);
+        links.addView(quickGuardButton, matchWrapTop(8));
         root.addView(links, marginBottom(10));
 
         LinearLayout details = cardColumn();
@@ -1516,6 +1557,7 @@ public class MainActivity extends Activity {
         s.removeAllViews();
         s.addView(content, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         s.setClipToPadding(false);
+        applyScrollContentBottomInset(s);
     }
 
     private View take(View view) {
@@ -1530,7 +1572,7 @@ public class MainActivity extends Activity {
         return child instanceof LinearLayout ? (LinearLayout) child : null;
     }
 
-    private LinearLayout pageColumn() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(0, 0, 0, dp(140)); return l; }
+    private LinearLayout pageColumn() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(0, 0, 0, Math.max(dp(24), bottomNavigationClearance)); return l; }
     private LinearLayout cardColumn() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(dp(16), dp(15), dp(16), dp(15)); l.setBackground(UITheme.current(this).card(22, .45f)); return l; }
     private LinearLayout editorialCard() { LinearLayout l = cardColumn(); l.setElevation(dp(.5f)); return l; }
     private LinearLayout horizontal() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
@@ -1615,18 +1657,47 @@ public class MainActivity extends Activity {
 
     private void showFeaturePanel(String title, View panel) {
         if (panel == null) return;
+        boolean isGuidianPanel = panel == drawerGuidian;
         ViewGroup originalParent = panel.getParent() instanceof ViewGroup ? (ViewGroup) panel.getParent() : null;
         int originalIndex = originalParent == null ? -1 : originalParent.indexOfChild(panel);
         ViewGroup.LayoutParams originalParams = panel.getLayoutParams();
         if (originalParent != null) originalParent.removeView(panel);
         panel.setVisibility(View.VISIBLE);
         styleTree(panel, UITheme.current(this), true);
+        if (isGuidianPanel) styleGuidianDetailPanel();
 
         ScrollView scroll = new ScrollView(this);
         scroll.setClipToPadding(false);
-        scroll.setPadding(dp(2), dp(2), dp(2), dp(8));
+        scroll.setPadding(dp(2), dp(2), dp(2), isGuidianPanel ? dp(2) : dp(8));
         scroll.addView(panel, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(title).setView(scroll).setPositiveButton("完成", null).create();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this).setTitle(title);
+        Button doneButton = null;
+        if (isGuidianPanel) {
+            LinearLayout content = new LinearLayout(this);
+            content.setOrientation(LinearLayout.VERTICAL);
+            content.setPadding(0, 0, 0, dp(2));
+            content.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            doneButton = new Button(this);
+            doneButton.setText("完成");
+            doneButton.setAllCaps(false);
+            doneButton.setTextSize(15);
+            doneButton.setGravity(Gravity.CENTER);
+            doneButton.setIncludeFontPadding(false);
+            doneButton.setTextColor(Color.WHITE);
+            doneButton.setBackground(UITheme.current(this).pill(true));
+            doneButton.setMinHeight(dp(44));
+            LinearLayout.LayoutParams doneLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+            doneLp.topMargin = dp(10);
+            content.addView(doneButton, doneLp);
+            builder.setView(content);
+        } else {
+            builder.setView(scroll).setPositiveButton("完成", null);
+        }
+        AlertDialog dialog = builder.create();
+        if (doneButton != null) {
+            Button button = doneButton;
+            button.setOnClickListener(v -> dialog.dismiss());
+        }
         dialog.setOnDismissListener(d -> {
             scroll.removeView(panel);
             panel.setVisibility(View.GONE);
@@ -1637,6 +1708,37 @@ public class MainActivity extends Activity {
             updateUI();
         });
         dialog.show();
+    }
+
+    private void styleGuidianDetailPanel() {
+        if (!(drawerGuidian instanceof LinearLayout)) return;
+        UITheme theme = UITheme.current(this);
+        LinearLayout panel = (LinearLayout) drawerGuidian;
+        panel.setPadding(dp(18), dp(16), dp(18), dp(14));
+        panel.setBackground(theme.card(22, .52f));
+        panel.setElevation(dp(1));
+        if (guidianSummaryText != null) {
+            guidianSummaryText.setTextSize(15);
+            guidianSummaryText.setTextColor(theme.text);
+            guidianSummaryText.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            guidianSummaryText.setLineSpacing(dp(3), 1f);
+        }
+        if (guidianDetailText != null) {
+            guidianDetailText.setTextSize(12);
+            guidianDetailText.setTextColor(theme.subtext);
+            guidianDetailText.setLineSpacing(dp(4), 1f);
+        }
+        if (testGuidianButton != null) {
+            testGuidianButton.setAllCaps(false);
+            testGuidianButton.setIncludeFontPadding(false);
+            testGuidianButton.setTextSize(15);
+            testGuidianButton.setGravity(Gravity.CENTER);
+            testGuidianButton.setTextColor(Color.WHITE);
+            testGuidianButton.setBackground(theme.pill(true));
+            testGuidianButton.setMinHeight(dp(44));
+            ViewGroup.LayoutParams params = testGuidianButton.getLayoutParams();
+            if (params != null) { params.height = dp(44); testGuidianButton.setLayoutParams(params); }
+        }
     }
 
     private void showCompanionActionsDialog() {
@@ -1670,7 +1772,7 @@ public class MainActivity extends Activity {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < items.length(); i++) {
             JSONObject e = items.optJSONObject(i); if (e == null) continue;
-            sb.append(e.optString("local_time", "--:--")).append(" · ").append(e.optString("title", "今日记录"));
+            sb.append(e.optString("local_time", "--:--")).append(" · ").append(journeySummary(e));
             String subtitle = e.optString("subtitle", ""); if (!subtitle.isEmpty()) sb.append("\n").append(subtitle);
             if (i + 1 < items.length()) sb.append("\n\n");
         }
@@ -1889,10 +1991,49 @@ public class MainActivity extends Activity {
                 lp.leftMargin = baseSide + Math.max(0, insets.getSystemWindowInsetLeft());
                 lp.rightMargin = baseSide + Math.max(0, insets.getSystemWindowInsetRight());
                 view.setLayoutParams(lp);
+                view.post(() -> updateBottomNavigationClearance(view));
                 return insets;
             });
             bottomNav.requestApplyInsets();
         }
+        bottomNav.post(() -> updateBottomNavigationClearance(bottomNav));
+    }
+
+    private void updateBottomNavigationClearance(View navigation) {
+        if (navigation == null) return;
+        int navHeight = navigation.getHeight() > 0 ? navigation.getHeight() : dp(72);
+        int bottomMargin = 0;
+        ViewGroup.LayoutParams params = navigation.getLayoutParams();
+        if (params instanceof ViewGroup.MarginLayoutParams) bottomMargin = ((ViewGroup.MarginLayoutParams) params).bottomMargin;
+        int clearance = navHeight + bottomMargin + dp(12);
+        if (clearance == bottomNavigationClearance) return;
+        bottomNavigationClearance = clearance;
+        applyScrollableContentBottomInsets();
+    }
+
+    private void applyScrollableContentBottomInsets() {
+        applyScrollContentBottomInset(sectionLife);
+        applyScrollContentBottomInset(sectionSee);
+        applyScrollContentBottomInset(sectionGate);
+        applyScrollContentBottomInset(sectionSettings);
+    }
+
+    private void applyScrollContentBottomInset(View section) {
+        if (!(section instanceof ScrollView)) return;
+        ScrollView scroll = (ScrollView) section;
+        if (scroll.getChildCount() == 0) return;
+        View content = scroll.getChildAt(0);
+        int requiredBottom = Math.max(dp(24), bottomNavigationClearance);
+        if (bottomNav != null && scroll.getHeight() > 0 && bottomNav.getHeight() > 0) {
+            int[] scrollLocation = new int[2];
+            int[] navigationLocation = new int[2];
+            scroll.getLocationOnScreen(scrollLocation);
+            bottomNav.getLocationOnScreen(navigationLocation);
+            int overlap = scrollLocation[1] + scroll.getHeight() - navigationLocation[1];
+            if (overlap > 0) requiredBottom = Math.max(requiredBottom, overlap + dp(16));
+        }
+        content.setPadding(content.getPaddingLeft(), content.getPaddingTop(), content.getPaddingRight(), requiredBottom);
+        scroll.setClipToPadding(false);
     }
     private void bindDrawer(Button b, View drawer, String title) {
         if (b == null || drawer == null) return;
@@ -2022,7 +2163,7 @@ public class MainActivity extends Activity {
         if (companionAvatarView != null) {
             companionAvatarView.setColors(t.card, t.line, 0xFF78AE90);
         }
-        TextView[] companionText = new TextView[]{companionPresenceText, sharedWhisperMetaText, companionActionsPreview, todayJourneyText, guardOverviewText};
+        TextView[] companionText = new TextView[]{companionPresenceText, sharedWhisperMetaText, companionActionsPreview, guardOverviewText};
         for (TextView v : companionText) if (v != null) v.setTextColor(t.subtext);
         if (sharedWhisperText != null) sharedWhisperText.setTextColor(t.text);
     }
@@ -2447,8 +2588,17 @@ public class MainActivity extends Activity {
         String note = weatherNoteInput == null ? "" : weatherNoteInput.getText().toString().trim();
         if (alias.isEmpty() && city.isEmpty()) { Toast.makeText(this, "先填地区名或城市", Toast.LENGTH_SHORT).show(); return; }
         WeatherState.saveLocation(this, alias, city, note, makeCurrent);
+        String currentCity = WeatherState.currentLocation(this).optString("city", "");
         DebugState.append(this, (makeCurrent ? "已设置当前天气地区：" : "已保存天气地区：") + (alias.isEmpty() ? city : alias));
         Toast.makeText(this, makeCurrent ? "已设为当前地区" : "已保存地区", Toast.LENGTH_SHORT).show();
+        if (!currentCity.isEmpty()) {
+            weatherFetching = true;
+            lastWeatherFetchAt = System.currentTimeMillis();
+            WeatherLive.refreshAsync(this, currentCity, weather -> runOnUiThread(() -> {
+                weatherFetching = false;
+                updateUI();
+            }));
+        }
         updateUI();
     }
 
@@ -2846,6 +2996,7 @@ public class MainActivity extends Activity {
         updateGuardianCalendarView();
         if (drawerCalendarButton != null && (drawerCalendar == null || drawerCalendar.getVisibility() != View.VISIBLE)) drawerCalendarButton.setText(CalendarState.summaryLine(this));
         if (drawerWeatherButton != null && (drawerWeather == null || drawerWeather.getVisibility() != View.VISIBLE)) drawerWeatherButton.setText(WeatherState.summaryLine(this));
+        if (weatherCitySettingsSummary != null) weatherCitySettingsSummary.setText(weatherCitySettingsText());
         if (weatherLocationsText != null) weatherLocationsText.setText(WeatherState.locationsText(this));
         if (knownAppsText != null) knownAppsText.setText(AppPrefs.knownAppsText(this));
         if (homeModeStatusText != null) homeModeStatusText.setText(HomeMode.pretty(this));
@@ -2928,20 +3079,51 @@ public class MainActivity extends Activity {
     }
 
     private void updateJourney(JSONObject state) {
-        if (todayJourneyText == null) return;
+        if (todayJourneyList == null) return;
+        todayJourneyList.removeAllViews();
         JSONArray journey = CompanionWindowState.journey(this);
-        StringBuilder sb = new StringBuilder();
         int count = Math.min(5, journey.length());
         for (int i = 0; i < count; i++) {
             JSONObject item = journey.optJSONObject(i);
             if (item == null) continue;
-            sb.append(item.optString("local_time", item.optString("time", "--:--"))).append("   ●  ").append(item.optString("title", "今日记录"));
-            String detail = item.optString("subtitle", item.optString("detail", ""));
-            if (!detail.isEmpty()) sb.append("\n           ").append(detail);
-            if (i + 1 < count) sb.append("\n\n");
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.TOP);
+
+            TextView time = label(item.optString("local_time", item.optString("time", "--:--")), 9);
+            time.setGravity(Gravity.TOP | Gravity.START);
+            time.setPadding(0, dp(2), 0, 0);
+            row.addView(time, new LinearLayout.LayoutParams(dp(42), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            TextView marker = label("●", 8);
+            marker.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            marker.setPadding(0, dp(3), 0, 0);
+            row.addView(marker, new LinearLayout.LayoutParams(dp(16), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            String detail = item.optString("subtitle", item.optString("detail", "")).trim();
+            TextView event = body(journeySummary(item) + (detail.isEmpty() ? "" : "\n" + detail), 10);
+            event.setTextColor(UITheme.current(this).text);
+            event.setAlpha(1f);
+            event.setLineSpacing(dp(3), 1f);
+            event.setMaxLines(3);
+            event.setEllipsize(TextUtils.TruncateAt.END);
+            row.addView(event, weightedWrap(1f, 4));
+            todayJourneyList.addView(row, i == count - 1 ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) : matchWrapTop(9));
         }
-        if (sb.length() == 0) sb.append("今天还没有留下轨迹。");
-        todayJourneyText.setText(sb.toString());
+        if (todayJourneyList.getChildCount() == 0) todayJourneyList.addView(body("今天还没有留下轨迹。", 10));
+    }
+
+    private String journeySummary(JSONObject item) {
+        String title = item == null ? "" : item.optString("title", "").trim();
+        if (!title.isEmpty()) return title;
+        String app = item == null ? "" : item.optString("app_name", "").trim();
+        String type = item == null ? "" : item.optString("type", "").trim();
+        String action = item == null ? "" : item.optString("action", "").trim();
+        if ("app_open".equals(type) || "foreground_changed".equals(action)) return app.isEmpty() ? "打开应用" : "打开" + app;
+        if ("screen_break_trigger".equals(type)) return app.isEmpty() ? "应用门禁已触发" : app + "的门禁已触发";
+        if ("guidian_return".equals(type)) return "回应归电";
+        if ("phone".equals(type)) return "完成一次本机记录";
+        return "完成一次本机记录";
     }
 
     private void updateCompanionDays() {
@@ -2985,7 +3167,7 @@ public class MainActivity extends Activity {
             if (overviewWeatherDetail != null) overviewWeatherDetail.setText(city.isEmpty() ? "未设城市" : city);
         }
         long now = System.currentTimeMillis();
-        if (!city.isEmpty() && !weatherFetching && !WeatherLive.isFresh(this, city, 45L * 60L * 1000L) && now - lastWeatherFetchAt > 45_000L) {
+        if (!city.isEmpty() && !weatherFetching && !WeatherLive.isFresh(this, city, 15L * 60L * 1000L) && now - lastWeatherFetchAt > 45_000L) {
             weatherFetching = true;
             lastWeatherFetchAt = now;
             WeatherLive.refreshAsync(this, city, weather -> runOnUiThread(() -> {

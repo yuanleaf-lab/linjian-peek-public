@@ -50,6 +50,8 @@ public final class LifeState {
             state.put("screen_on", screenOn); state.put("network_type", networkType(ctx)); state.put("usage_permission_ready", usageReady);
             state.put("current_package", current.packageName); state.put("current_app", current.appName); state.put("current_app_authorized", usageReady);
             state.put("screen_time_today_minutes", usage.screenTimeMinutes); state.put("unlock_count_today", usage.unlockCount);
+            // Weather is based only on the user's manually saved city. It never reads GPS.
+            state.put("current_weather_location", WeatherState.currentLocation(ctx));
             state.put("summary", summary(batteryPercent, charging, current.appName, usageReady));
             // Compatibility marker only. A real screen text is never created or sent in low mode.
             state.put("screen_text", ""); state.put("now_state", NowState.collect(ctx));
