@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -31,6 +32,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 public class ScreenshotService extends AccessibilityService {
+    private static final String LOG_TAG = "LinjianPeek";
     private static volatile ScreenshotService instance;
     private static volatile String currentPackage = "";
     private static volatile String screenText = "";
@@ -45,6 +47,43 @@ public class ScreenshotService extends AccessibilityService {
     public static String currentPackage() { return currentPackage == null ? "" : currentPackage; }
     public static String screenText() { return screenText == null ? "" : screenText; }
     public static String screenNodesJson() { return screenNodesJson == null ? "[]" : screenNodesJson; }
+
+    public interface ScreenshotCallback {
+        void onResult(ScreenshotOutcome outcome);
+    }
+
+    public static final class ScreenshotOutcome {
+        public final String stage;
+        public final boolean terminal;
+        public final boolean success;
+        public final int httpStatus;
+        public final String detail;
+
+        ScreenshotOutcome(String stage, boolean terminal, boolean success, int httpStatus, String detail) {
+            this.stage = stage;
+            this.terminal = terminal;
+            this.success = success;
+            this.httpStatus = httpStatus;
+            this.detail = detail == null ? "" : detail;
+        }
+    }
+
+    private void logKey(String message) {
+        DebugState.appendAndLog(this, message);
+    }
+
+    private void report(ScreenshotCallback callback, String stage, boolean terminal, boolean success, int httpStatus, String detail) {
+        String safe = safeDetail(detail);
+        StringBuilder text = new StringBuilder("截图[").append(stage).append("] ");
+        if (terminal) text.append(success ? "成功" : "失败"); else text.append("进行中");
+        if (httpStatus > 0) text.append(" · HTTP ").append(httpStatus);
+        if (!safe.isEmpty()) text.append(" · ").append(safe);
+        logKey(text.toString());
+        if (callback != null) {
+            try { callback.onResult(new ScreenshotOutcome(stage, terminal, success, httpStatus, safe)); }
+            catch (Exception callbackError) { Log.w(LOG_TAG, "截图结果回调异常：" + callbackError.getClass().getSimpleName()); }
+        }
+    }
 
     private final Runnable watchdogTick = new Runnable() {
         @Override public void run() {
@@ -92,7 +131,7 @@ public class ScreenshotService extends AccessibilityService {
         super.onServiceConnected();
         instance = this;
         NowState.start(this);
-        DebugState.append(this, "无障碍服务已连接：截图/读屏/节点坐标/活动轨迹/远程息屏可用 v0.3.7.2");
+        logKey("无障碍 onServiceConnected：截图/读屏/节点坐标/活动轨迹/远程息屏可用 v0.3.7.2");
         watchdog = new Handler(Looper.getMainLooper());
         watchdog.postDelayed(watchdogTick, 15000);
         startBackgroundPolling();
@@ -109,10 +148,10 @@ public class ScreenshotService extends AccessibilityService {
             AppGate.onForegroundPackage(this, pkg.toString());
         }
     }
-    @Override public void onInterrupt() { DebugState.append(this, "无障碍服务被中断"); }
+    @Override public void onInterrupt() { logKey("无障碍 onInterrupt：服务被中断"); }
 
     private void markDisconnected(String reason) {
-        DebugState.append(this, reason);
+        logKey(reason);
         instance = null;
         currentPackage = "";
         screenText = "";
@@ -123,12 +162,12 @@ public class ScreenshotService extends AccessibilityService {
     }
 
     @Override public boolean onUnbind(Intent intent) {
-        markDisconnected("无障碍服务已解绑：系统可能已关闭权限");
+        markDisconnected("无障碍 onUnbind：服务已解绑，系统权限状态待确认");
         return super.onUnbind(intent);
     }
 
     @Override public void onDestroy() {
-        markDisconnected("无障碍服务已断开");
+        markDisconnected("无障碍 onDestroy：服务已断开");
         super.onDestroy();
     }
 
@@ -333,32 +372,39 @@ public class ScreenshotService extends AccessibilityService {
     }
 
     public void doScreenshot(String serverUrl, String token) {
-        if (Build.VERSION.SDK_INT < 30) { DebugState.append(this, "截图失败：Android 版本低于 11"); return; }
-        final String finalUrl = normalizeUrl(serverUrl);
-        DebugState.append(this, "开始调用系统截图 API");
-        takeScreenshot(Display.DEFAULT_DISPLAY, executor, new TakeScreenshotCallback() {
-            @Override public void onSuccess(ScreenshotResult result) {
-                try {
-                    DebugState.append(ScreenshotService.this, "系统截图成功，开始编码");
-                    Bitmap hardwareBitmap = Bitmap.wrapHardwareBuffer(result.getHardwareBuffer(), result.getColorSpace());
-                    if (hardwareBitmap == null) { DebugState.append(ScreenshotService.this, "截图失败：Bitmap 为空"); return; }
-                    Bitmap bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false);
-                    hardwareBitmap.recycle(); result.getHardwareBuffer().close();
-                    ByteArrayOutputStream out = new ByteArrayOutputStream();
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out); bitmap.recycle();
-                    byte[] data = out.toByteArray();
-                    DebugState.append(ScreenshotService.this, "截图编码完成：" + data.length + " bytes");
-                    if (data.length > 100) uploadScreenshot(data, finalUrl, token); else DebugState.append(ScreenshotService.this, "上传取消：截图数据太小");
-                } catch (Exception e) { DebugState.append(ScreenshotService.this, "截图处理异常：" + shortMsg(e)); }
-            }
-            @Override public void onFailure(int errorCode) { DebugState.append(ScreenshotService.this, "系统截图失败：errorCode=" + errorCode + "（可尝试关闭再开启无障碍）"); }
-        });
+        doScreenshot(serverUrl, token, null);
     }
 
-    private void uploadScreenshot(byte[] data, String serverUrl, String token) {
+    public void doScreenshot(String serverUrl, String token, ScreenshotCallback callback) {
+        if (Build.VERSION.SDK_INT < 30) { report(callback, "android_version_unsupported", true, false, 0, "Android 版本低于 11"); return; }
+        final String finalUrl = normalizeUrl(serverUrl);
+        report(callback, "take_screenshot_start", false, false, 0, "开始调用系统截图 API");
+        try { takeScreenshot(Display.DEFAULT_DISPLAY, executor, new TakeScreenshotCallback() {
+            @Override public void onSuccess(ScreenshotResult result) {
+                try {
+                    report(callback, "take_screenshot_success", false, true, 0, "系统截图 API 成功，开始编码");
+                    Bitmap hardwareBitmap = Bitmap.wrapHardwareBuffer(result.getHardwareBuffer(), result.getColorSpace());
+                    if (hardwareBitmap == null) { report(callback, "bitmap_missing", true, false, 0, "Bitmap 获取失败"); return; }
+                    Bitmap bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false);
+                    hardwareBitmap.recycle(); result.getHardwareBuffer().close();
+                    if (bitmap == null) { report(callback, "bitmap_missing", true, false, 0, "Bitmap 拷贝失败"); return; }
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    boolean encoded = bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out); bitmap.recycle();
+                    byte[] data = out.toByteArray();
+                    if (!encoded) { report(callback, "jpeg_encode_failed", true, false, 0, "JPEG 编码失败"); return; }
+                    report(callback, "jpeg_encoded", false, true, 0, "JPEG 编码完成，" + data.length + " bytes");
+                    if (data.length > 100) uploadScreenshot(data, finalUrl, token, callback); else report(callback, "screenshot_data_too_small", true, false, 0, "截图数据太小，已取消上传");
+                } catch (Exception e) { report(callback, "screenshot_processing_exception", true, false, 0, "截图处理异常：" + shortMsg(e)); }
+            }
+            @Override public void onFailure(int errorCode) { report(callback, "take_screenshot_failure", true, false, 0, "系统截图失败 errorCode=" + errorCode); }
+        }); } catch (Exception e) { report(callback, "take_screenshot_exception", true, false, 0, "系统截图调用异常：" + shortMsg(e)); }
+    }
+
+    private void uploadScreenshot(byte[] data, String serverUrl, String token, ScreenshotCallback callback) {
+        HttpURLConnection conn = null;
         try {
-            DebugState.append(this, "开始上传截图到 /api/screenshot");
-            HttpURLConnection conn = (HttpURLConnection) new URL(serverUrl + "/api/screenshot").openConnection();
+            report(callback, "http_upload_start", false, true, 0, "开始 HTTP 上传");
+            conn = (HttpURLConnection) new URL(serverUrl + "/api/screenshot").openConnection();
             conn.setRequestMethod("POST"); conn.setDoOutput(true);
             conn.setRequestProperty("X-Auth-Token", token);
             conn.setRequestProperty("Content-Type", "image/jpeg");
@@ -366,14 +412,18 @@ public class ScreenshotService extends AccessibilityService {
             conn.setConnectTimeout(15000); conn.setReadTimeout(30000);
             OutputStream os = conn.getOutputStream(); os.write(data); os.flush(); os.close();
             int code = conn.getResponseCode(); String body = readBody(conn, code);
-            if (code >= 200 && code < 300) DebugState.append(this, "上传成功：HTTP " + code + " " + clip(body));
-            else DebugState.append(this, "上传失败：HTTP " + code + " " + clip(body));
-            conn.disconnect();
-        } catch (Exception e) { DebugState.append(this, "上传异常：" + shortMsg(e)); }
+            if (code >= 200 && code < 300) report(callback, "http_upload_success", true, true, code, body);
+            else report(callback, "http_upload_failure", true, false, code, body);
+        } catch (Exception e) { report(callback, "http_upload_exception", true, false, 0, "网络异常：" + shortMsg(e)); }
+        finally { if (conn != null) conn.disconnect(); }
     }
 
     public static String normalizeUrl(String url) { if (url == null) return ""; url = url.trim(); while (url.endsWith("/")) url = url.substring(0, url.length() - 1); return url; }
     static String readBody(HttpURLConnection conn, int code) { try { InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream(); if (is == null) return ""; ByteArrayOutputStream bos = new ByteArrayOutputStream(); byte[] buf = new byte[1024]; int n; while ((n = is.read(buf)) > 0) bos.write(buf, 0, n); return new String(bos.toByteArray(), "UTF-8"); } catch (Exception e) { return ""; } }
     static String clip(String s) { if (s == null) return ""; s = s.replace('\n', ' ').replace('\r', ' '); return s.length() > 90 ? s.substring(0, 90) + "…" : s; }
+    static String safeDetail(String s) {
+        String value = clip(s);
+        return value.replaceAll("(?i)(\\\"?(?:authorization|x-auth-token|token)\\\"?\\s*[:=]\\s*\\\"?)[^\\s,;\\\"}]+", "$1<redacted>");
+    }
     static String shortMsg(Exception e) { String msg = e.getClass().getSimpleName(); if (e.getMessage() != null) msg += ": " + e.getMessage(); return clip(msg); }
 }

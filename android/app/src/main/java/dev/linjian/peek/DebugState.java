@@ -2,6 +2,7 @@ package dev.linjian.peek;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -34,6 +35,15 @@ public class DebugState {
             next = sb.toString();
         }
         prefs.edit().putString(KEY_DEBUG, next).apply();
+    }
+
+    /**
+     * Keep user-visible advanced diagnostics and adb logcat in sync for
+     * infrequent, security-relevant lifecycle and screenshot events.
+     */
+    public static void appendAndLog(Context ctx, String message) {
+        append(ctx, message);
+        Log.i("LinjianPeek", message == null ? "" : message);
     }
 
     public static String get(Context ctx) {

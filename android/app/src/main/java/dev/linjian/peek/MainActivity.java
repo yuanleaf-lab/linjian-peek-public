@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
     private String latestVersionName = AppPrefs.APP_VERSION_NAME;
     private String latestApkUrl = "";
     private String latestChangelog = "";
+    private String lastAccessibilityStateLine = "";
     private TextView brandText, headerTitle, headerSubtitle, statusText, debugText, lifeStatusText, lifeSummaryText, knownAppsText, homeModeStatusText, gateStatusText, nowStateText, nowStatePermissionText;
     private TextView heroLabelText, overviewAdviceText, overviewSecondaryText, overviewMetaText, overviewBatteryText, overviewBatteryDetail, overviewAppText, overviewAppDetail, overviewScreenText, overviewScreenDetail, overviewWeatherText, overviewWeatherDetail, weatherLocationsText, themeText, calendarSummaryText, calendarDetailText;
     private TextView overviewBatteryLabel, overviewAppLabel, overviewScreenLabel, overviewWeatherLabel, quickSeeTitle, quickSeeDetail, quickSeeArrow, quickGuardTitle, quickGuardDetail, quickGuardArrow;
@@ -2249,8 +2250,23 @@ public class MainActivity extends Activity {
     private void testScreenshot() {
         saveSettings(); String url = serverUrl == null ? "" : serverUrl.getText().toString().trim(); String token = tokenInput == null ? "" : tokenInput.getText().toString().trim(); ScreenshotService ss = ScreenshotService.getInstance();
         if (url.isEmpty() || token.isEmpty()) { Toast.makeText(this, "先填服务器地址和 Token", Toast.LENGTH_SHORT).show(); return; }
-        if (ss == null) { DebugState.append(this, "测试失败：无障碍服务未连接"); Toast.makeText(this, "先开启无障碍服务", Toast.LENGTH_LONG).show(); openAccessibilitySettings(); return; }
-        DebugState.append(this, "给" + AppPrefs.companionName(this) + "看一眼：开始截图上传"); ss.doScreenshot(url, token); Toast.makeText(this, "正在上传截图", Toast.LENGTH_SHORT).show(); updateUI();
+        if (ss == null) { recordAccessibilityState(); DebugState.appendAndLog(this, "测试失败：无障碍服务未连接"); Toast.makeText(this, "截图失败 · 无障碍服务断开", Toast.LENGTH_LONG).show(); openAccessibilitySettings(); return; }
+        DebugState.appendAndLog(this, "给" + AppPrefs.companionName(this) + "看一眼：开始截图上传");
+        Toast.makeText(this, "正在截图并上传", Toast.LENGTH_SHORT).show();
+        ss.doScreenshot(url, token, outcome -> {
+            if (!outcome.terminal) return;
+            runOnUiThread(() -> {
+                String result;
+                if (outcome.success) result = "截图上传成功 · HTTP " + outcome.httpStatus;
+                else if (outcome.httpStatus > 0) result = "截图上传失败 · HTTP " + outcome.httpStatus;
+                else if ("take_screenshot_failure".equals(outcome.stage) || "android_version_unsupported".equals(outcome.stage)) result = "截图失败 · " + outcome.detail;
+                else result = "截图上传失败 · " + outcome.detail;
+                DebugState.appendAndLog(MainActivity.this, "看见结果：" + result);
+                Toast.makeText(MainActivity.this, result, Toast.LENGTH_LONG).show();
+                updateUI();
+            });
+        });
+        updateUI();
     }
     private void testAlarm() { Calendar c = Calendar.getInstance(); c.add(Calendar.MINUTE, 1); try { Intent i = new Intent(AlarmClock.ACTION_SET_ALARM); i.putExtra(AlarmClock.EXTRA_HOUR, c.get(Calendar.HOUR_OF_DAY)); i.putExtra(AlarmClock.EXTRA_MINUTES, c.get(Calendar.MINUTE)); i.putExtra(AlarmClock.EXTRA_MESSAGE, "掌心窗测试闹钟：" + AppPrefs.userName(this)); i.putExtra(AlarmClock.EXTRA_VIBRATE, true); i.putExtra(AlarmClock.EXTRA_SKIP_UI, true); startActivity(i); DebugState.append(this, "已请求设置一分钟后的测试闹钟"); } catch (Exception e) { DebugState.append(this, "测试闹钟失败：" + e.getClass().getSimpleName()); Toast.makeText(this, "闹钟 App 没接住请求", Toast.LENGTH_SHORT).show(); } }
     private void testNotification() { saveSettings(); boolean ok = CompanionService.showReminderNotification(this, "掌心窗悬浮横幅测试", AppPrefs.userName(this) + "看到了顶部横幅，就说明通知通道正常。"); DebugState.append(this, ok ? "已发送悬浮横幅测试提醒" : "悬浮横幅/通知失败：请允许掌心窗发送通知"); Toast.makeText(this, ok ? "已发送横幅测试" : "请先允许通知权限", Toast.LENGTH_SHORT).show(); updateUI(); }
@@ -2448,6 +2464,21 @@ public class MainActivity extends Activity {
         return enabled;
     }
 
+    private String accessibilityStateLine() {
+        boolean secure = isAccessibilityServiceEnabledInSettings();
+        boolean manager = isAccessibilityServiceEnabledByManager();
+        boolean bound = ScreenshotService.getInstance() != null;
+        return "无障碍状态：secure=" + secure + " / manager=" + manager + " / bound=" + bound;
+    }
+
+    private void recordAccessibilityState() {
+        String line = accessibilityStateLine();
+        if (!line.equals(lastAccessibilityStateLine)) {
+            lastAccessibilityStateLine = line;
+            DebugState.appendAndLog(this, line);
+        }
+    }
+
     private void openUsageAccessSettings() { try { startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); } catch (Exception e) { Toast.makeText(this, "设置 → 应用 → 特殊权限 → 使用情况访问", Toast.LENGTH_LONG).show(); } }
     private void requestLocationPermission() {
         if (Build.VERSION.SDK_INT >= 23 && !NowState.hasLocationPermission(this)) requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 24);
@@ -2463,16 +2494,20 @@ public class MainActivity extends Activity {
     private void requestIgnoreBatteryOptimization() { if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return; try { PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE); if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) { Intent bi = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS); bi.setData(Uri.parse("package:" + getPackageName())); startActivity(bi); } } catch (Exception ignored) { } }
 
     private void updateUI() {
-        boolean accessibilityEnabled = isAccessibilityServiceEnabled();
-        boolean accessibilityConnected = accessibilityEnabled && ScreenshotService.getInstance() != null;
+        boolean accessibilitySecure = isAccessibilityServiceEnabledInSettings();
+        boolean accessibilityManager = isAccessibilityServiceEnabledByManager();
+        boolean accessibilityBound = ScreenshotService.getInstance() != null;
+        boolean accessibilityEnabled = accessibilitySecure || accessibilityManager;
+        boolean accessibilityConnected = accessibilityBound;
         boolean accessibilityConfirming = !accessibilityEnabled && recentlyOpenedAccessibilitySettings();
         boolean accessibilityOk = accessibilityEnabled;
+        recordAccessibilityState();
         boolean usageOk = LifeState.hasUsagePermission(this);
         UITheme visualTheme = UITheme.current(this);
         updateHeader(currentTab);
         if (serviceRunning) { if (statusText != null) { statusText.setText(accessibilityOk ? "●  窗已打开 · 陪伴和守护都在" : (accessibilityConfirming ? "●  生活小窗已打开 · 正在确认无障碍" : "●  生活小窗已打开 · 无障碍待开启")); statusText.setTextColor(accessibilityOk ? visualTheme.primary : 0xFFCF8A62); } if (toggleButton != null) { toggleButton.setText("停止服务"); toggleButton.setBackgroundResource(R.drawable.pill_danger); } }
         else { if (statusText != null) { statusText.setText(accessibilityOk ? "○  感官已准备 · 服务等待开启" : (accessibilityConfirming ? "○  正在确认无障碍状态" : "○  天气可用 · 无障碍待开启")); statusText.setTextColor(accessibilityConfirming ? 0xFFCF8A62 : visualTheme.subtext); } if (toggleButton != null) { toggleButton.setText("启动服务"); toggleButton.setBackgroundResource(R.drawable.pill_primary); } }
-        if (accessibilityButton != null) accessibilityButton.setText(accessibilityOk ? (accessibilityConnected ? "无障碍权限：已开启" : "无障碍权限：系统已开启，等待连接") : (accessibilityConfirming ? "无障碍权限：正在确认，点此查看提示" : "打开无障碍设置"));
+        if (accessibilityButton != null) accessibilityButton.setText(accessibilityConnected ? "无障碍权限：已连接" : (accessibilityOk ? "无障碍权限：系统已开启，等待连接" : (accessibilityConfirming ? "无障碍权限：正在确认，点此查看提示" : "打开无障碍设置")));
         if (usageAccessButton != null) usageAccessButton.setText(usageOk ? "使用情况权限：已开启" : "打开使用情况访问权限");
         if (locationPermissionButton != null) locationPermissionButton.setText(NowState.hasLocationPermission(this) ? "定位权限：已开启" : "打开定位权限");
         if (overlayPermissionButton != null) overlayPermissionButton.setText((Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) ? "悬浮窗权限：已开启" : "打开悬浮窗权限");
