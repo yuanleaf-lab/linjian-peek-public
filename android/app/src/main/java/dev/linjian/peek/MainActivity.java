@@ -266,7 +266,7 @@ public class MainActivity extends Activity {
                 if ("dynamic_privacy".equals(tag) || "dynamic_diary_backup".equals(tag) || "dynamic_appearance".equals(tag)) settings.removeViewAt(i);
             }
             settings.setPadding(0, 0, 0, dp(140));
-            Button privacyButton = actionButton("隐私与记录  ›", false);
+            Button privacyButton = settingsDrawerButton("隐私与记录  ›");
             privacyButton.setTag("dynamic_privacy");
             LinearLayout privacy = cardColumn();
             privacy.setTag("dynamic_privacy");
@@ -294,7 +294,7 @@ public class MainActivity extends Activity {
             bindDrawer(privacyButton, privacy, "隐私与记录");
             settings.addView(privacyButton, 0, marginBottom(8));
             settings.addView(privacy, 1, marginBottom(8));
-            Button diaryBackupButton = actionButton("日记本备份  ›", false);
+            Button diaryBackupButton = settingsDrawerButton("日记本备份  ›");
             diaryBackupButton.setTag("dynamic_diary_backup");
             LinearLayout diaryBackup = cardColumn();
             diaryBackup.setTag("dynamic_diary_backup");
@@ -315,7 +315,7 @@ public class MainActivity extends Activity {
     }
 
     private void addAppearancePanel(LinearLayout settings) {
-        drawerAppearanceButton = actionButton("外观与文案  ›", false);
+        drawerAppearanceButton = settingsDrawerButton("外观与文案  ›");
         drawerAppearanceButton.setTag("dynamic_appearance");
         drawerAppearance = cardColumn();
         drawerAppearance.setTag("dynamic_appearance");
@@ -1546,6 +1546,7 @@ public class MainActivity extends Activity {
     private View guardSettingBlock(String name, String detail, int icon, View panel) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(13), dp(14), dp(13)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(40), dp(40))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 14)); copy.addView(body(detail, 9), matchWrapTop(3)); row.addView(copy, weightedWrap(1f, 12)); ImageView arrow = new ImageView(this); arrow.setImageResource(R.drawable.ic_arrow_right); arrow.setColorFilter(UITheme.current(this).primary); row.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22))); card.addView(row); card.setOnClickListener(v -> showFeaturePanel(name, panel)); card.setClickable(true); card.setFocusable(true); return card; }
     private View actionSettingBlock(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(13), dp(14), dp(13)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(40), dp(40))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 14)); copy.addView(body(detail, 9), matchWrapTop(3)); row.addView(copy, weightedWrap(1f, 12)); ImageView arrow = new ImageView(this); arrow.setImageResource(R.drawable.ic_arrow_right); arrow.setColorFilter(UITheme.current(this).primary); row.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22))); card.addView(row); card.setOnClickListener(v -> click.run()); card.setClickable(true); card.setFocusable(true); return card; }
     private View quickAction(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setGravity(Gravity.CENTER); card.setPadding(dp(8), dp(11), dp(8), dp(9)); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); card.addView(iv, new LinearLayout.LayoutParams(dp(28), dp(28))); TextView n = title(name, 12); n.setGravity(Gravity.CENTER); card.addView(n, matchWrapTop(5)); TextView d = body(detail, 8); d.setGravity(Gravity.CENTER); card.addView(d, matchWrapTop(2)); card.setOnClickListener(v -> click.run()); card.setClickable(true); return card; }
+    private Button settingsDrawerButton(String text) { Button b = actionButton(text, false); b.setTag("settings_drawer"); styleSettingsDrawerButton(b, UITheme.current(this)); return b; }
     private Button actionButton(String text, boolean primary) { Button b = new Button(this); b.setText(text); b.setTextSize(10); b.setAllCaps(false); b.setMinHeight(dp(29)); UITheme t = UITheme.current(this); b.setBackground(primary ? t.pill(true) : t.chip(false)); b.setTextColor(primary ? Color.WHITE : t.text); return b; }
     private Button iconButton(String text, String description) { Button b = actionButton(text, false); b.setContentDescription(description); b.setTextSize(16); b.setPadding(0, 0, 0, 0); return b; }
     private LinearLayout.LayoutParams marginBottom(int bottom) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); p.bottomMargin = dp(bottom); return p; }
@@ -2155,6 +2156,8 @@ public class MainActivity extends Activity {
 
     private void styleButton(Button b, UITheme t) {
         if (b == null) return;
+        if ("settings_drawer".equals(b.getTag())) { styleSettingsDrawerButton(b, t); return; }
+        if ("settings_action".equals(b.getTag())) { styleSettingsActionButton(b, t); return; }
         b.setAllCaps(false);
         b.setIncludeFontPadding(false);
         b.setTextColor(t.text);
@@ -2167,6 +2170,7 @@ public class MainActivity extends Activity {
 
     private void styleDrawerButton(Button b, UITheme t) {
         if (b == null) return;
+        if ("settings_drawer".equals(b.getTag())) { styleSettingsDrawerButton(b, t); return; }
         b.setBackground(t.chip(false));
         b.setTextColor(t.text);
         b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
@@ -2175,6 +2179,31 @@ public class MainActivity extends Activity {
         b.setPadding(dp(14), 0, dp(14), 0);
         ViewGroup.LayoutParams lp = b.getLayoutParams();
         if (lp != null) { lp.height = dp(30); b.setLayoutParams(lp); }
+    }
+
+    private void styleSettingsDrawerButton(Button b, UITheme t) {
+        b.setAllCaps(false);
+        b.setIncludeFontPadding(false);
+        b.setTextSize(16);
+        b.setTextColor(t.text);
+        b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        b.setMinHeight(dp(64));
+        b.setPadding(dp(20), 0, dp(18), 0);
+        b.setBackground(t.card(22, .45f));
+        ViewGroup.LayoutParams lp = b.getLayoutParams();
+        if (lp != null) { lp.height = dp(64); b.setLayoutParams(lp); }
+    }
+
+    private void styleSettingsActionButton(Button b, UITheme t) {
+        boolean primary = b.getId() == R.id.downloadUpdateButton;
+        b.setAllCaps(false);
+        b.setIncludeFontPadding(false);
+        b.setTextSize(16);
+        b.setGravity(Gravity.CENTER);
+        b.setMinHeight(dp(48));
+        b.setPadding(dp(12), 0, dp(12), 0);
+        b.setTextColor(primary ? Color.WHITE : t.text);
+        b.setBackground(primary ? t.pill(true) : t.chip(false));
     }
 
     private void styleThemeButton(Button b, UITheme t, String name) {
