@@ -466,9 +466,11 @@ public class MainActivity extends Activity {
         root.addView(heroWrap, marginBottom(12));
 
         LinearLayout mosaic = new LinearLayout(this);
-        mosaic.setOrientation(LinearLayout.HORIZONTAL);
+        mosaic.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout topCards = horizontal();
         LinearLayout focus = editorialCard();
         focus.setPadding(dp(16), dp(13), dp(16), dp(11));
+        focus.setMinimumHeight(dp(132));
         focus.addView(label("今日专注", 9));
         overviewScreenText = title("-", 20);
         focus.addView(overviewScreenText, matchWrapTop(5));
@@ -478,43 +480,21 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams focusProgressLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4));
         focusProgressLp.topMargin = dp(14);
         focus.addView(focusProgress, focusProgressLp);
-        LinearLayout focusColumn = new LinearLayout(this);
-        focusColumn.setOrientation(LinearLayout.VERTICAL);
-        focusColumn.addView(focus, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        mosaic.addView(focusColumn, weightedWrap(1.08f, 0));
-        LinearLayout smalls = new LinearLayout(this);
-        smalls.setOrientation(LinearLayout.VERTICAL);
         LinearLayout weather = smallStat("窗外", R.drawable.ic_cloud);
+        weather.setMinimumHeight(dp(132));
         overviewWeatherLabel = (TextView) weather.getChildAt(0);
         overviewWeatherText = (TextView) weather.getChildAt(1);
         overviewWeatherDetail = (TextView) weather.getChildAt(2);
-        smalls.addView(weather);
+        topCards.addView(focus, weightedWrap(1f, 0));
+        topCards.addView(weather, weightedWrap(1f, 9));
+        mosaic.addView(topCards, marginBottom(9));
         LinearLayout next = editorialCard();
         todayNextTitle = label(AppPrefs.customText(this, AppPrefs.KEY_HOME_NEXT_LABEL, "下一件事"), 9);
         todayNextDetail = title("晚间无安排", 13);
         next.addView(todayNextTitle);
         next.addView(todayNextDetail, matchWrapTop(6));
         next.addView(body("把时间留给自己", 9), matchWrapTop(3));
-        smalls.addView(next, marginBottom(8));
-        mosaic.addView(smalls, weightedWrap(1f, 9));
-        mosaic.post(() -> {
-            int totalHeight = focus.getMeasuredHeight();
-            if (totalHeight <= dp(16)) return;
-            int gap = dp(8);
-            int eachHeight = Math.max(dp(48), (totalHeight - gap) / 2);
-            ViewGroup.LayoutParams focusColumnLp = focusColumn.getLayoutParams();
-            focusColumnLp.height = eachHeight * 2 + gap;
-            focusColumn.setLayoutParams(focusColumnLp);
-            ViewGroup.LayoutParams smallsLp = smalls.getLayoutParams();
-            smallsLp.height = eachHeight * 2 + gap;
-            smalls.setLayoutParams(smallsLp);
-            ViewGroup.LayoutParams weatherLp = weather.getLayoutParams();
-            weatherLp.height = eachHeight;
-            weather.setLayoutParams(weatherLp);
-            ViewGroup.LayoutParams nextLp = next.getLayoutParams();
-            nextLp.height = eachHeight;
-            next.setLayoutParams(nextLp);
-        });
+        mosaic.addView(next);
         root.addView(mosaic, marginBottom(10));
 
         LinearLayout batteryStrip = editorialCard();
@@ -1195,16 +1175,16 @@ public class MainActivity extends Activity {
         prev.setOnClickListener(v -> { calendarVisibleMonth.add(Calendar.MONTH, -1); ensureCalendarDayValid(); updateGuardianCalendarView(); });
         Button next = iconButton("→", "下个月");
         next.setOnClickListener(v -> { calendarVisibleMonth.add(Calendar.MONTH, 1); ensureCalendarDayValid(); updateGuardianCalendarView(); });
-        calendarMonthTitle = title("", 15);
+        calendarMonthTitle = title("", 18);
         calendarMonthTitle.setGravity(Gravity.CENTER);
-        monthRow.addView(prev, new LinearLayout.LayoutParams(dp(34), dp(30)));
+        monthRow.addView(prev, new LinearLayout.LayoutParams(dp(38), dp(38)));
         monthRow.addView(calendarMonthTitle, weightedWrap(1f, 8));
-        monthRow.addView(next, new LinearLayout.LayoutParams(dp(34), dp(30)));
+        monthRow.addView(next, new LinearLayout.LayoutParams(dp(38), dp(38)));
         card.addView(monthRow);
 
         calendarGrid = new LinearLayout(this);
         calendarGrid.setOrientation(LinearLayout.VERTICAL);
-        card.addView(calendarGrid, matchWrapTop(5));
+        card.addView(calendarGrid, matchWrapTop(9));
 
         LinearLayout legend = horizontal();
         legend.setGravity(Gravity.CENTER_VERTICAL);
@@ -1278,7 +1258,7 @@ public class MainActivity extends Activity {
             LinearLayout week = horizontal();
             String[] ws = new String[]{"一", "二", "三", "四", "五", "六", "日"};
             for (String w : ws) {
-                TextView tv = label(w, 9);
+                TextView tv = label(w, 10);
                 tv.setGravity(Gravity.CENTER);
                 week.addView(tv, weightedWrap(1f, 0));
             }
@@ -1301,7 +1281,7 @@ public class MainActivity extends Activity {
                         day++;
                     }
                 }
-                calendarGrid.addView(row, fixedHeight(38, 0));
+                calendarGrid.addView(row, fixedHeight(54, 0));
                 if (r < 5) calendarGrid.addView(calendarSoftDivider(), fixedHeight(1, 1));
             }
             updateCalendarSelectedDetail(year, monthIndex, calendarSelectedDay, monthEvents);
@@ -1314,7 +1294,7 @@ public class MainActivity extends Activity {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setGravity(Gravity.CENTER);
-        cell.setPadding(dp(1), dp(1), dp(1), dp(1));
+        cell.setPadding(dp(3), dp(3), dp(3), dp(3));
         cell.setTag("calendar_day");
         JSONObject event = firstCalendarEventOn(year, monthIndex, day, upcoming);
         boolean hasEvent = event != null;
@@ -1322,10 +1302,10 @@ public class MainActivity extends Activity {
         Calendar today = Calendar.getInstance();
         boolean isToday = today.get(Calendar.YEAR) == year && today.get(Calendar.MONTH) == monthIndex && today.get(Calendar.DAY_OF_MONTH) == day;
         cell.setBackground(calendarDayBackground(event, selected, isToday));
-        TextView num = title(String.valueOf(day), hasEvent || selected ? 11 : 10);
+        TextView num = title(String.valueOf(day), hasEvent || selected ? 12 : 11);
         num.setGravity(Gravity.CENTER);
         cell.addView(num);
-        TextView mark = body(hasEvent ? calendarMark(event) : (isToday ? "•" : ""), 7);
+        TextView mark = body(hasEvent ? calendarMark(event) : (isToday ? "•" : ""), 8);
         mark.setGravity(Gravity.CENTER);
         cell.addView(mark, matchWrapTop(1));
         cell.setOnClickListener(v -> { calendarSelectedDay = day; updateGuardianCalendarView(); });
@@ -1940,6 +1920,7 @@ public class MainActivity extends Activity {
         String raw = AppPrefs.get(this).getString(AppPrefs.KEY_BACKGROUND_URI, "");
         boolean hasImage = raw != null && !raw.trim().isEmpty();
         if (backgroundImage != null) {
+            backgroundImage.setZ(0f);
             if (hasImage) {
                 try { backgroundImage.setImageURI(Uri.parse(raw)); backgroundImage.setVisibility(View.VISIBLE); backgroundImage.setAlpha(.58f); }
                 catch (Exception e) { backgroundImage.setVisibility(View.GONE); }
@@ -1947,10 +1928,13 @@ public class MainActivity extends Activity {
             } else backgroundImage.setVisibility(View.GONE);
         }
         if (backgroundScrim != null) {
+            backgroundScrim.setZ(1f);
             int softness = AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60);
             int alpha = hasImage ? 185 + softness : 0;
             backgroundScrim.setBackgroundColor(Color.argb(Math.min(235, alpha), Color.red(theme.bgTop), Color.green(theme.bgTop), Color.blue(theme.bgTop)));
         }
+        View content = findViewById(R.id.mainContent);
+        if (content != null) content.setZ(2f);
     }
 
     private void applyVisualTheme() {
