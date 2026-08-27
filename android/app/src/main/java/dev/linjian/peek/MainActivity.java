@@ -263,11 +263,11 @@ public class MainActivity extends Activity {
         if (settings != null) {
             for (int i = settings.getChildCount() - 1; i >= 0; i--) {
                 Object tag = settings.getChildAt(i).getTag();
-                if ("dynamic_privacy".equals(tag) || "dynamic_diary_backup".equals(tag) || "dynamic_appearance".equals(tag)) settings.removeViewAt(i);
+                if (tag instanceof String && ((String) tag).contains("dynamic_")) settings.removeViewAt(i);
             }
             settings.setPadding(0, 0, 0, dp(140));
             Button privacyButton = settingsDrawerButton("隐私与记录  ›");
-            privacyButton.setTag("dynamic_privacy");
+            privacyButton.setTag("settings_drawer_dynamic_privacy");
             LinearLayout privacy = cardColumn();
             privacy.setTag("dynamic_privacy");
             privacy.setVisibility(View.GONE);
@@ -295,7 +295,7 @@ public class MainActivity extends Activity {
             settings.addView(privacyButton, 0, marginBottom(8));
             settings.addView(privacy, 1, marginBottom(8));
             Button diaryBackupButton = settingsDrawerButton("日记本备份  ›");
-            diaryBackupButton.setTag("dynamic_diary_backup");
+            diaryBackupButton.setTag("settings_drawer_dynamic_diary_backup");
             LinearLayout diaryBackup = cardColumn();
             diaryBackup.setTag("dynamic_diary_backup");
             diaryBackup.setVisibility(View.GONE);
@@ -316,7 +316,7 @@ public class MainActivity extends Activity {
 
     private void addAppearancePanel(LinearLayout settings) {
         drawerAppearanceButton = settingsDrawerButton("外观与文案  ›");
-        drawerAppearanceButton.setTag("dynamic_appearance");
+        drawerAppearanceButton.setTag("settings_drawer_dynamic_appearance");
         drawerAppearance = cardColumn();
         drawerAppearance.setTag("dynamic_appearance");
         drawerAppearance.setVisibility(View.GONE);
@@ -1990,6 +1990,7 @@ public class MainActivity extends Activity {
             getWindow().getDecorView().setSystemUiVisibility(flags);
         }
         styleTree(root, t, false);
+        styleSettingsPanels(t);
         setTabSelected(tabLife, "life".equals(currentTab));
         setTabSelected(tabSee, "see".equals(currentTab));
         setTabSelected(tabGate, "gate".equals(currentTab));
@@ -2011,7 +2012,7 @@ public class MainActivity extends Activity {
         TextView[] statDetails = new TextView[]{overviewBatteryDetail, overviewAppDetail, overviewScreenDetail, overviewWeatherDetail};
         for (TextView detail : statDetails) if (detail != null) detail.setTextColor(t.subtext);
         if (tabSettings != null) { tabSettings.setBackground(t.chip("settings".equals(currentTab))); tabSettings.setColorFilter(t.primary); tabSettings.setPadding(0, 0, 0, 0); }
-        styleDrawerButton(drawerLifeDetailsButton, t); styleDrawerButton(drawerThemeButton, t); styleDrawerButton(drawerNowStateButton, t); styleDrawerButton(drawerCalendarButton, t); styleDrawerButton(drawerAppGateButton, t); styleDrawerButton(drawerWeatherButton, t); styleDrawerButton(drawerGuidianButton, t); styleDrawerButton(drawerGuidianSettingsButton, t); styleDrawerButton(drawerConnectionButton, t); styleDrawerButton(drawerPermissionButton, t); styleDrawerButton(drawerControlTestButton, t); styleDrawerButton(drawerKnownAppsButton, t); styleDrawerButton(drawerHomeModeButton, t); styleDrawerButton(drawerGateAddButton, t); styleDrawerButton(drawerReminderButton, t); styleDrawerButton(drawerCycleButton, t); styleDrawerButton(drawerDebugButton, t);
+        styleDrawerButton(drawerLifeDetailsButton, t); styleDrawerButton(drawerThemeButton, t); styleDrawerButton(drawerNowStateButton, t); styleDrawerButton(drawerCalendarButton, t); styleDrawerButton(drawerAppGateButton, t); styleDrawerButton(drawerWeatherButton, t); styleDrawerButton(drawerGuidianButton, t); styleDrawerButton(drawerGuidianSettingsButton, t); styleDrawerButton(drawerConnectionButton, t); styleDrawerButton(drawerPermissionButton, t); styleDrawerButton(drawerControlTestButton, t); styleDrawerButton(drawerKnownAppsButton, t); styleDrawerButton(drawerHomeModeButton, t); styleDrawerButton(drawerGateAddButton, t); styleDrawerButton(drawerReminderButton, t); styleDrawerButton(drawerCycleButton, t); styleDrawerButton(drawerDebugButton, t); styleDrawerButton(drawerVersionButton, t);
         if (statusText != null) { statusText.setBackground(t.soft(18)); statusText.setPadding(dp(12), dp(7), dp(12), dp(7)); }
         if (testGuidianButton != null) { testGuidianButton.setBackground(t.pill(true)); testGuidianButton.setTextColor(Color.WHITE); }
         if (saveGuidianSettingsButton != null) { saveGuidianSettingsButton.setBackground(t.pill(true)); saveGuidianSettingsButton.setTextColor(Color.WHITE); }
@@ -2156,7 +2157,7 @@ public class MainActivity extends Activity {
 
     private void styleButton(Button b, UITheme t) {
         if (b == null) return;
-        if ("settings_drawer".equals(b.getTag())) { styleSettingsDrawerButton(b, t); return; }
+        if (isSettingsDrawer(b)) { styleSettingsDrawerButton(b, t); return; }
         if ("settings_action".equals(b.getTag())) { styleSettingsActionButton(b, t); return; }
         b.setAllCaps(false);
         b.setIncludeFontPadding(false);
@@ -2170,7 +2171,7 @@ public class MainActivity extends Activity {
 
     private void styleDrawerButton(Button b, UITheme t) {
         if (b == null) return;
-        if ("settings_drawer".equals(b.getTag())) { styleSettingsDrawerButton(b, t); return; }
+        if (isSettingsDrawer(b)) { styleSettingsDrawerButton(b, t); return; }
         b.setBackground(t.chip(false));
         b.setTextColor(t.text);
         b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
@@ -2187,11 +2188,11 @@ public class MainActivity extends Activity {
         b.setTextSize(16);
         b.setTextColor(t.text);
         b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        b.setMinHeight(dp(64));
-        b.setPadding(dp(20), 0, dp(18), 0);
-        b.setBackground(t.card(22, .45f));
+        b.setMinHeight(settingsDim(R.dimen.settings_card_min_height));
+        b.setPadding(settingsDim(R.dimen.settings_card_padding_horizontal), 0, settingsDim(R.dimen.settings_card_padding_horizontal), 0);
+        b.setBackground(t.card(settingsDim(R.dimen.settings_card_radius), .45f));
         ViewGroup.LayoutParams lp = b.getLayoutParams();
-        if (lp != null) { lp.height = dp(64); b.setLayoutParams(lp); }
+        if (lp != null) { lp.height = settingsDim(R.dimen.settings_card_min_height); b.setLayoutParams(lp); }
     }
 
     private void styleSettingsActionButton(Button b, UITheme t) {
@@ -2200,7 +2201,7 @@ public class MainActivity extends Activity {
         b.setIncludeFontPadding(false);
         b.setTextSize(16);
         b.setGravity(Gravity.CENTER);
-        b.setMinHeight(dp(48));
+        b.setMinHeight(settingsDim(R.dimen.touch_target));
         b.setPadding(dp(12), 0, dp(12), 0);
         b.setTextColor(primary ? Color.WHITE : t.text);
         b.setBackground(primary ? t.pill(true) : t.chip(false));
@@ -2211,9 +2212,14 @@ public class MainActivity extends Activity {
         boolean selected = name.equals(t.name);
         b.setBackground(t.chip(selected));
         b.setTextColor(selected ? t.primary : t.subtext);
-        b.setMinHeight(dp(29));
+        b.setAllCaps(false);
+        b.setIncludeFontPadding(false);
+        b.setTextSize(13);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(6), 0, dp(6), 0);
+        b.setMinHeight(settingsDim(R.dimen.settings_chip_height));
         ViewGroup.LayoutParams lp = b.getLayoutParams();
-        if (lp != null) { lp.height = dp(30); b.setLayoutParams(lp); }
+        if (lp != null) { lp.height = settingsDim(R.dimen.settings_chip_height); b.setLayoutParams(lp); }
     }
 
     private void styleGuidianThemeButton(Button b, UITheme t, String name) {
@@ -2221,9 +2227,81 @@ public class MainActivity extends Activity {
         boolean selected = name.equals(GuidianState.themeName(this));
         b.setBackground(t.chip(selected));
         b.setTextColor(selected ? t.primary : t.subtext);
-        b.setMinHeight(dp(29));
+        b.setAllCaps(false);
+        b.setIncludeFontPadding(false);
+        b.setTextSize(13);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(6), 0, dp(6), 0);
+        b.setMinHeight(settingsDim(R.dimen.settings_chip_height));
         ViewGroup.LayoutParams lp = b.getLayoutParams();
-        if (lp != null) { lp.height = dp(30); b.setLayoutParams(lp); }
+        if (lp != null) { lp.height = settingsDim(R.dimen.settings_chip_height); b.setLayoutParams(lp); }
+    }
+
+    private boolean isSettingsDrawer(Button b) {
+        Object tag = b.getTag();
+        return tag instanceof String && ((String) tag).contains("settings_drawer");
+    }
+
+    private int settingsDim(int resId) { return getResources().getDimensionPixelSize(resId); }
+
+    private void styleSettingsPanels(UITheme t) {
+        View[] panels = new View[]{drawerTheme, drawerGuidianSettings, drawerConnection, drawerPermission, drawerNowState, drawerKnownApps, drawerControlTest, drawerDebug, drawerVersion, drawerAppearance};
+        for (View panel : panels) styleSettingsPanel(panel, t);
+    }
+
+    private void styleSettingsPanel(View panel, UITheme t) {
+        if (!(panel instanceof LinearLayout)) return;
+        LinearLayout column = (LinearLayout) panel;
+        column.setBackground(t.card(settingsDim(R.dimen.settings_card_radius), .45f));
+        column.setPadding(settingsDim(R.dimen.settings_card_padding_horizontal), settingsDim(R.dimen.settings_card_padding_vertical), settingsDim(R.dimen.settings_card_padding_horizontal), settingsDim(R.dimen.settings_card_padding_vertical));
+        for (int i = 0; i < column.getChildCount(); i++) {
+            View child = column.getChildAt(i);
+            ViewGroup.LayoutParams raw = child.getLayoutParams();
+            if (raw instanceof LinearLayout.LayoutParams && i > 0) {
+                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) raw;
+                lp.topMargin = Math.max(lp.topMargin, settingsDim(R.dimen.settings_content_gap));
+                child.setLayoutParams(lp);
+            }
+            styleSettingsContent(child, i == 0);
+        }
+    }
+
+    private void styleSettingsContent(View view, boolean first) {
+        if (view instanceof CheckBox) {
+            CheckBox check = (CheckBox) view;
+            check.setTextSize(14);
+            check.setGravity(Gravity.CENTER_VERTICAL);
+            check.setMinHeight(settingsDim(R.dimen.settings_control_min_height));
+            check.setIncludeFontPadding(false);
+            return;
+        }
+        if (view instanceof EditText) {
+            EditText input = (EditText) view;
+            input.setTextSize(14);
+            input.setMinHeight(settingsDim(R.dimen.settings_control_min_height));
+            input.setPadding(dp(12), 0, dp(12), 0);
+            if (input.getLayoutParams() != null && input.getLayoutParams().height != dp(96) && input.getLayoutParams().height != dp(120)) input.setGravity(Gravity.CENTER_VERTICAL);
+            return;
+        }
+        if (view instanceof Button) {
+            Button button = (Button) view;
+            if (button != themeCreamButton && button != themeBlueButton && button != themePeachButton && button != themeNightButton && button != themeMintButton && button != themePurpleButton && button != guidianThemeDuskButton && button != guidianThemeCloudButton && button != guidianThemeBerryButton) {
+                button.setAllCaps(false);
+                button.setIncludeFontPadding(false);
+                button.setTextSize(15);
+                button.setGravity(Gravity.CENTER);
+                button.setMinHeight(settingsDim(R.dimen.settings_control_min_height));
+                button.setPadding(dp(12), 0, dp(12), 0);
+            }
+            return;
+        }
+        if (view instanceof TextView) {
+            TextView text = (TextView) view;
+            text.setIncludeFontPadding(false);
+            text.setTextSize(first ? 16 : 13);
+            text.setLineSpacing(dp(4), 1f);
+            text.setGravity(Gravity.CENTER_VERTICAL);
+        }
     }
 
     private int dp(float v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }

@@ -7,4 +7,12 @@
     <dimen name="corner_card">24dp</dimen>
     <dimen name="corner_pill">28dp</dimen>
     <dimen name="touch_target">48dp</dimen>
+    <dimen name="settings_card_radius">22dp</dimen>
+    <dimen name="settings_card_min_height">64dp</dimen>
+    <dimen name="settings_card_padding_horizontal">20dp</dimen>
+    <dimen name="settings_card_padding_vertical">16dp</dimen>
+    <dimen name="settings_section_gap">8dp</dimen>
+    <dimen name="settings_content_gap">8dp</dimen>
+    <dimen name="settings_control_min_height">44dp</dimen>
+    <dimen name="settings_chip_height">40dp</dimen>
 </resources>
