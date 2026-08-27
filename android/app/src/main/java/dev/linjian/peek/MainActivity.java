@@ -375,9 +375,9 @@ public class MainActivity extends Activity {
             public void onStopTrackingTouch(SeekBar s) {}
         });
         glassAlphaSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int p, boolean fromUser) { if (fromUser) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_GLASS_ALPHA, p + 45).apply(); buildMagazinePages(); updateUI(); } }
+            public void onProgressChanged(SeekBar s, int p, boolean fromUser) { if (fromUser) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_GLASS_ALPHA, p + 45).apply(); applyVisualTheme(); } }
             public void onStartTrackingTouch(SeekBar s) {}
-            public void onStopTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_GLASS_ALPHA, s.getProgress() + 45).apply(); }
         });
         saveAppearanceButton = actionButton("保存并应用", true);
         saveAppearanceButton.setOnClickListener(v -> saveAppearance());
