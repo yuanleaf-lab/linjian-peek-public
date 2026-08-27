@@ -49,7 +49,9 @@ public class UITheme {
     }
 
     private UITheme withGlassAlpha(int percent) {
-        int a = Math.max(55, Math.min(100, percent)) * 255 / 100;
+        int clamped = Math.max(55, Math.min(100, percent));
+        int visualPercent = 55 + Math.round((clamped - 55) * 0.65f);
+        int a = visualPercent * 255 / 100;
         return new UITheme(name, bgTop, bgBottom, withAlpha(card, a), withAlpha(cardSoft, Math.min(255, a + 18)),
                 primary, primarySoft, accent, text, subtext, line, danger, dark);
     }

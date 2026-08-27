@@ -481,7 +481,7 @@ public class MainActivity extends Activity {
         LinearLayout focusColumn = new LinearLayout(this);
         focusColumn.setOrientation(LinearLayout.VERTICAL);
         focusColumn.addView(focus, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        mosaic.addView(focusColumn, weightedWrap(1.25f, 0));
+        mosaic.addView(focusColumn, weightedWrap(1.08f, 0));
         LinearLayout smalls = new LinearLayout(this);
         smalls.setOrientation(LinearLayout.VERTICAL);
         LinearLayout weather = smallStat("窗外", R.drawable.ic_cloud);
@@ -497,6 +497,24 @@ public class MainActivity extends Activity {
         next.addView(body("把时间留给自己", 9), matchWrapTop(3));
         smalls.addView(next, marginBottom(8));
         mosaic.addView(smalls, weightedWrap(1f, 9));
+        mosaic.post(() -> {
+            int totalHeight = focus.getMeasuredHeight();
+            if (totalHeight <= dp(16)) return;
+            int gap = dp(8);
+            int eachHeight = Math.max(dp(48), (totalHeight - gap) / 2);
+            ViewGroup.LayoutParams focusColumnLp = focusColumn.getLayoutParams();
+            focusColumnLp.height = eachHeight * 2 + gap;
+            focusColumn.setLayoutParams(focusColumnLp);
+            ViewGroup.LayoutParams smallsLp = smalls.getLayoutParams();
+            smallsLp.height = eachHeight * 2 + gap;
+            smalls.setLayoutParams(smallsLp);
+            ViewGroup.LayoutParams weatherLp = weather.getLayoutParams();
+            weatherLp.height = eachHeight;
+            weather.setLayoutParams(weatherLp);
+            ViewGroup.LayoutParams nextLp = next.getLayoutParams();
+            nextLp.height = eachHeight;
+            next.setLayoutParams(nextLp);
+        });
         root.addView(mosaic, marginBottom(10));
 
         LinearLayout batteryStrip = editorialCard();
@@ -2160,7 +2178,7 @@ public class MainActivity extends Activity {
 
     private int dp(float v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
 
-    @Override protected void onResume() { super.onResume(); serviceRunning = CompanionService.isRunning(); updateUI(); if (recentlyOpenedAccessibilitySettings()) scheduleAccessibilityFollowupChecks(); uiHandler.removeCallbacks(refreshTick); uiHandler.post(refreshTick); }
+    @Override protected void onResume() { super.onResume(); applyBackground(); serviceRunning = CompanionService.isRunning(); updateUI(); if (recentlyOpenedAccessibilitySettings()) scheduleAccessibilityFollowupChecks(); uiHandler.removeCallbacks(refreshTick); uiHandler.post(refreshTick); }
     @Override protected void onPause() { saveConnectionSettingsOnly(true); uiHandler.removeCallbacks(refreshTick); super.onPause(); }
     @Override protected void onStop() { saveConnectionSettingsOnly(true); super.onStop(); }
 
