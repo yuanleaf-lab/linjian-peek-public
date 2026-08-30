@@ -354,9 +354,11 @@ public class GuidianState {
             full.putExtra("prompt", prompt);
             PendingIntent fullPi = PendingIntent.getActivity(ctx, 230723, full, Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT : PendingIntent.FLAG_UPDATE_CURRENT);
             Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(ctx, CHANNEL_ID) : new Notification.Builder(ctx);
+            CompanionService.clearNotificationsUsingThePreviousIcon(ctx);
             Notification n = b.setContentTitle(AppPrefs.companionName(ctx) + "来电")
                     .setContentText(prompt)
-                    .setSmallIcon(android.R.drawable.sym_call_incoming)
+                    .setSmallIcon(R.drawable.ic_notification_brand)
+                    .setColor(0xFFD37091)
                     .setContentIntent(fullPi)
                     .setFullScreenIntent(fullPi, prefs(ctx).getBoolean(KEY_FULLSCREEN, true))
                     .setCategory(Notification.CATEGORY_CALL)

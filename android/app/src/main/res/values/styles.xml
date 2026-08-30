@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Linjian.App" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowBackground">@drawable/app_window_background</item>
+        <item name="android:colorAccent">@color/linjian_primary</item>
+        <item name="android:statusBarColor">@color/linjian_bg_top</item>
+        <item name="android:navigationBarColor">@color/linjian_bg_bottom</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+
+    <style name="Theme.Linjian.Lock" parent="Theme.Linjian.App">
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowDisablePreview">false</item>
+        <item name="android:windowBackground">@drawable/app_gate_background</item>
+    </style>
+
+    <style name="Theme.Linjian.Splash" parent="Theme.Linjian.App">
+        <item name="android:windowBackground">@drawable/splash_screen_legacy</item>
+        <item name="android:windowDisablePreview">false</item>
+    </style>
+</resources>

@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="linjian_bg_top">#FFFFF4F8</color>
+    <color name="linjian_bg_mid">#FFFFFAFC</color>
+    <color name="linjian_bg_bottom">#FFFFEEF5</color>
+    <color name="linjian_surface">#FFFFFCFD</color>
+    <color name="linjian_surface_glass">#EFFFFFFF</color>
+    <color name="linjian_primary">#FFD37091</color>
+    <color name="linjian_primary_soft">#FFFFE2EC</color>
+    <color name="linjian_text">#FF433039</color>
+    <color name="linjian_subtext">#FF916E7B</color>
+    <color name="linjian_line">#FFF2D5DF</color>
+    <color name="linjian_icon_bg">#FFFFF7F9</color>
     <color name="mist_blue">#6D9FD0</color>
     <color name="mist_blue_dark">#173B63</color>
     <color name="mist_blue_soft">#DCEBFA</color>

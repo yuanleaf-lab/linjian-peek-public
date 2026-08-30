@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Linjian.Splash" parent="Theme.Linjian.App">
+        <item name="android:windowSplashScreenBackground">@color/linjian_bg_top</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_brand_splash</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/linjian_icon_bg</item>
+        <item name="android:windowBackground">@drawable/splash_screen_legacy</item>
+    </style>
+</resources>

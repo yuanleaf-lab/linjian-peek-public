@@ -5,10 +5,12 @@ import android.animation.ValueAnimator;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -29,11 +31,14 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.InputStream;
+
 /** 归电的沉浸式来电页；只调整展示，不改变归电判断与记录逻辑。 */
 public class GuidianActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private FrameLayout root;
     private LinearLayout reasonDrawer;
+    private View reasonScrim;
     private GuidianTheme theme;
     private TextView callerName;
     private TextView callState;
@@ -46,7 +51,6 @@ public class GuidianActivity extends Activity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
@@ -60,20 +64,15 @@ public class GuidianActivity extends Activity {
     }
 
     private void applySystemBars() {
-        getWindow().setNavigationBarColor(theme.background);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            int flags = getWindow().getDecorView().getSystemUiVisibility();
-            if (theme.dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-            else flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-            getWindow().getDecorView().setSystemUiVisibility(flags);
-        }
+        SystemBars.applyEdgeToEdge(this, theme.background, 0xFFFFEDF4, theme.dark);
     }
 
     private void buildUi(String prompt) {
         if (prompt == null || prompt.trim().isEmpty()) prompt = GuidianState.pickPrompt(this);
         root = new FrameLayout(this);
-        root.setBackgroundColor(theme.background);
+        root.setBackgroundResource(R.drawable.app_window_background);
         setContentView(root);
+        applyGuidianBackground();
 
         addDecor(R.drawable.decor_guidian_rose, Gravity.TOP | Gravity.RIGHT,
                 dp(164), dp(220), -dp(12), dp(8), theme.roseAlpha);
@@ -83,7 +82,11 @@ public class GuidianActivity extends Activity {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setGravity(Gravity.CENTER_HORIZONTAL);
-        body.setPadding(dp(30), dp(34), dp(30), dp(24));
+        int side = dp(30);
+        int top = dp(34);
+        int bottom = dp(24);
+        body.setPadding(side, top, side, bottom);
+        SystemBars.applyInsetPadding(body, side, top, side, bottom);
         root.addView(body, new FrameLayout.LayoutParams(-1, -1));
 
         String companion = AppPrefs.companionName(this);
@@ -272,11 +275,11 @@ public class GuidianActivity extends Activity {
             return;
         }
 
-        View scrim = new View(this);
-        scrim.setBackgroundColor(theme.scrim);
-        scrim.setOnClickListener(v -> hideReasonDrawer());
-        root.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
-        scrim.setTag("guidian_scrim");
+        reasonScrim = new View(this);
+        reasonScrim.setBackgroundColor(theme.scrim);
+        reasonScrim.setOnClickListener(v -> hideReasonDrawer());
+        root.addView(reasonScrim, new FrameLayout.LayoutParams(-1, -1));
+        reasonScrim.setTag("guidian_scrim");
 
         reasonDrawer = new LinearLayout(this);
         reasonDrawer.setOrientation(LinearLayout.VERTICAL);
@@ -287,7 +290,15 @@ public class GuidianActivity extends Activity {
         drawerLp.leftMargin = dp(14);
         drawerLp.rightMargin = dp(14);
         drawerLp.bottomMargin = dp(14);
+        if (Build.VERSION.SDK_INT >= 20) {
+            reasonDrawer.setOnApplyWindowInsetsListener((target, insets) -> {
+                drawerLp.bottomMargin = dp(14) + insets.getSystemWindowInsetBottom();
+                target.setLayoutParams(drawerLp);
+                return insets;
+            });
+        }
         root.addView(reasonDrawer, drawerLp);
+        if (Build.VERSION.SDK_INT >= 20) reasonDrawer.requestApplyInsets();
 
         TextView title = text("晚一点，也没关系。", 19, theme.text, true);
         reasonDrawer.addView(title, new LinearLayout.LayoutParams(-1, -2));
@@ -351,10 +362,10 @@ public class GuidianActivity extends Activity {
 
     private void hideReasonDrawer() {
         if (reasonDrawer == null) return;
-        View scrim = root.findViewWithTag("guidian_scrim");
         root.removeView(reasonDrawer);
-        if (scrim != null) root.removeView(scrim);
+        if (reasonScrim != null) root.removeView(reasonScrim);
         reasonDrawer = null;
+        reasonScrim = null;
     }
 
     private void submitReason(String reason) {
@@ -381,6 +392,40 @@ public class GuidianActivity extends Activity {
         button.setClickable(true);
         button.setFocusable(true);
         return button;
+    }
+
+    private void applyGuidianBackground() {
+        String raw = AppPrefs.get(this).getString(AppPrefs.KEY_BACKGROUND_URI, "");
+        boolean imageApplied = false;
+        if (raw != null && !raw.trim().isEmpty()) {
+            ImageView image = new ImageView(this);
+            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            try {
+                Bitmap bitmap;
+                try (InputStream input = getContentResolver().openInputStream(Uri.parse(raw))) {
+                    bitmap = BitmapFactory.decodeStream(input);
+                }
+                if (bitmap == null || bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0) throw new IllegalStateException("bitmap_unavailable");
+                image.setImageBitmap(bitmap);
+                float blur = AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60) / 3f;
+                if (Build.VERSION.SDK_INT >= 31 && blur > 0f) {
+                    image.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(
+                            blur, blur, android.graphics.Shader.TileMode.CLAMP));
+                }
+                root.addView(image, new FrameLayout.LayoutParams(-1, -1));
+                imageApplied = true;
+                DebugState.appendAndLog(this, "guidian_background_image_applied");
+            } catch (Exception ignored) {
+                image.setImageDrawable(null);
+                DebugState.appendAndLog(this, "guidian_background_image_failed");
+            }
+        } else {
+            DebugState.appendAndLog(this, "guidian_background_default");
+        }
+        View scrim = new View(this);
+        int alpha = imageApplied ? Math.min(AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SCRIM, 18, 0, 90), 56) : 42;
+        scrim.setBackgroundColor(Color.argb(alpha, Color.red(theme.background), Color.green(theme.background), Color.blue(theme.background)));
+        root.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
     }
 
     private TextView text(String value, float sp, int color, boolean bold) {

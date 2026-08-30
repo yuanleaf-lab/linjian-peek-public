@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.util.Log;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
@@ -269,6 +270,7 @@ public class AppGate {
         try { accountUsageSwitch(ctx, pkg, now); } catch (Exception ignored) { }
         if (isProtectedPackage(ctx, pkg)) return;
         if (SELF_PACKAGE.equals(pkg)) return;
+        Log.i("LinjianPeek", "AppGate foreground=" + pkg);
         try {
             JSONObject lock = activeLockFor(ctx, pkg, now);
             if (lock == null) return;
@@ -620,6 +622,7 @@ public class AppGate {
 
     private static void log(Context ctx, String msg) {
         DebugState.append(ctx, "应用门禁：" + msg);
+        Log.i("LinjianPeek", "AppGate: " + msg);
         try {
             JSONObject s = state(ctx); JSONArray logs = s.optJSONArray("logs"); if (logs == null) logs = new JSONArray();
             JSONObject o = new JSONObject(); o.put("time_ms", System.currentTimeMillis()); o.put("time", formatLocal(System.currentTimeMillis())); o.put("message", msg); logs.put(o); while (logs.length() > 60) logs.remove(0); s.put("logs", logs); save(ctx, s);

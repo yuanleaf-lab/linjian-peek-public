@@ -35,7 +35,7 @@ public class WeatherLive {
             SharedPreferences p = AppPrefs.get(ctx);
             String savedCity = p.getString(KEY_CITY, "");
             String raw = p.getString(KEY_JSON, "");
-            if (raw == null || raw.isEmpty() || !city.equals(savedCity)) return null;
+            if (raw == null || raw.isEmpty() || (!city.equals(savedCity) && !"@gps".equals(savedCity))) return null;
             JSONObject o = new JSONObject(raw);
             o.put("cache_age_ms", Math.max(0, System.currentTimeMillis() - p.getLong(KEY_AT, 0)));
             return o;
@@ -79,6 +79,20 @@ public class WeatherLive {
             }
             if (callback != null) callback.onResult(result);
         }, "peek-weather-live").start();
+    }
+
+    public static void refreshCoordinatesAsync(Context ctx, double latitude, double longitude, String placeName, Callback callback) {
+        final Context app = ctx.getApplicationContext();
+        new Thread(() -> {
+            JSONObject result;
+            try {
+                String url = String.format(Locale.US, "https://api.open-meteo.com/v1/forecast?latitude=%.6f&longitude=%.6f&current=temperature_2m,weather_code&timezone=auto&forecast_days=1", latitude, longitude);
+                JSONObject current = new JSONObject(get(url)).optJSONObject("current");
+                result = new JSONObject(); result.put("ok", true); result.put("source", "open-meteo-gps"); result.put("resolved_city", clean(placeName).isEmpty() ? "当前位置" : clean(placeName)); result.put("latitude", latitude); result.put("longitude", longitude); result.put("temperature", Math.round(current == null ? 0 : current.optDouble("temperature_2m", 0))); result.put("condition", weatherCodeText(current == null ? -999 : current.optInt("weather_code", -999))); result.put("updated_at_ms", System.currentTimeMillis());
+                AppPrefs.get(app).edit().putString(KEY_CITY, "@gps").putString(KEY_JSON, result.toString()).putLong(KEY_AT, System.currentTimeMillis()).apply();
+            } catch (Exception e) { result = error(ScreenshotService.shortMsg(e), ""); }
+            if (callback != null) callback.onResult(result);
+        }, "peek-weather-gps").start();
     }
 
     private static JSONObject fetch(String city) throws Exception {

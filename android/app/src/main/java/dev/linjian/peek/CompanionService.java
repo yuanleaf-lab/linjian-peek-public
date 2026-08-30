@@ -10,6 +10,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -34,6 +35,8 @@ public class CompanionService extends Service {
     private static final String CHANNEL_ID = "linjian_peek_service";
     private static final String REMINDER_CHANNEL_ID = "linjian_peek_heads_up_v3";
     private static final int NOTIFICATION_ID = 20260715;
+    private static final String NOTIFICATION_ICON_REVISION_KEY = "notification_icon_revision";
+    private static final int NOTIFICATION_ICON_REVISION = 5;
     private static volatile boolean running = false;
 
     private String serverUrl;
@@ -50,6 +53,8 @@ public class CompanionService extends Service {
         if (intent != null && "STOP".equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
         createNotificationChannel();
         NowState.start(this);
+        clearNotificationsUsingThePreviousIcon(this);
+        cancelStaleForegroundNotification();
         startForeground(NOTIFICATION_ID, buildNotification("低权限状态同步运行中"));
         if (intent != null) {
             serverUrl = ScreenshotService.normalizeUrl(intent.getStringExtra("server_url"));
@@ -445,10 +450,13 @@ public class CompanionService extends Service {
                 nm.createNotificationChannel(channel);
             }
             Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(ctx, REMINDER_CHANNEL_ID) : new Notification.Builder(ctx);
+            clearNotificationsUsingThePreviousIcon(ctx);
             Notification n = builder
                     .setContentTitle(safeTitle)
                     .setContentText(safeMessage)
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setSmallIcon(R.drawable.ic_notification_brand)
+                    .setLargeIcon((Bitmap) null)
+                    .setColor(0xFFD37091)
                     .setContentIntent(pi)
                     .setAutoCancel(true)
                     .setCategory(Notification.CATEGORY_MESSAGE)
@@ -507,6 +515,13 @@ public class CompanionService extends Service {
     }
 
     private void createNotificationChannel() { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { NotificationManager nm = getSystemService(NotificationManager.class); NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "掌心窗", NotificationManager.IMPORTANCE_LOW); channel.setDescription("掌心窗正在同步低权限设备状态"); nm.createNotificationChannel(channel); NotificationChannel reminder = new NotificationChannel(REMINDER_CHANNEL_ID, "掌心窗悬浮横幅提醒", NotificationManager.IMPORTANCE_HIGH); reminder.setDescription("来自掌心窗的悬浮横幅与生活提醒"); reminder.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC); reminder.enableVibration(true); nm.createNotificationChannel(reminder); } }
-    private Notification buildNotification(String text) { Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this); return builder.setContentTitle("掌心窗运行中").setContentText(text).setSmallIcon(android.R.drawable.ic_menu_view).setOngoing(true).build(); }
+    static void clearNotificationsUsingThePreviousIcon(Context ctx) {
+        if (AppPrefs.get(ctx).getInt(NOTIFICATION_ICON_REVISION_KEY, 0) >= NOTIFICATION_ICON_REVISION) return;
+        NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.cancelAll();
+        AppPrefs.get(ctx).edit().putInt(NOTIFICATION_ICON_REVISION_KEY, NOTIFICATION_ICON_REVISION).apply();
+    }
+    private void cancelStaleForegroundNotification() { NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE); if (nm != null) nm.cancel(NOTIFICATION_ID); }
+    private Notification buildNotification(String text) { Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this); return builder.setContentTitle("掌心窗运行中").setContentText(text).setSmallIcon(R.drawable.ic_notification_brand).setLargeIcon((Bitmap) null).setColor(0xFFD37091).setOngoing(true).build(); }
     @Override public void onDestroy() { running = false; DebugState.append(this, "服务已销毁/停止"); if (pollThread != null) pollThread.quitSafely(); super.onDestroy(); }
 }

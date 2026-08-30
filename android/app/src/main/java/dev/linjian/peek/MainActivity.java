@@ -5,6 +5,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
+import android.app.Dialog;
 import android.content.Intent;
 import android.content.Context;
 import android.content.ComponentName;
@@ -17,9 +18,12 @@ import android.graphics.RectF;
 import android.graphics.LinearGradient;
 import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
+import android.location.Location;
+import android.location.LocationManager;
 import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.net.Uri;
@@ -36,6 +40,7 @@ import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.FrameLayout;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -96,6 +101,7 @@ public class MainActivity extends Activity {
     private View mainRoot, backgroundScrim;
     private ImageView backgroundImage;
     private LinearLayout drawerAppearance;
+    private LinearLayout drawerAppearanceContent;
     private Button drawerAppearanceButton, chooseBackgroundButton, resetBackgroundButton, saveAppearanceButton;
     private TextView weatherCitySettingsSummary;
     private EditText homeTitleInput, homeSubtitleInput, homeWhisperLabelInput, homeWhisperDetailInput, homeNextLabelInput, gateMessageInput, guidianMessageInput;
@@ -110,6 +116,9 @@ public class MainActivity extends Activity {
     private String currentTab = "life";
     private int bottomNavigationClearance = 0;
     private boolean weatherFetching = false;
+    private boolean weatherLocationPermissionRequestInFlight = false;
+    private boolean weatherLocationPermissionRequestedThisActivity = false;
+    private boolean weatherLocationAttemptedThisActivity = false;
     private String lastBackgroundLog = "";
     private long lastWeatherFetchAt = 0L;
     private static final int REQ_GUIDIAN_AVATAR = 230723;
@@ -143,7 +152,10 @@ public class MainActivity extends Activity {
     };
 
     @Override protected void onCreate(Bundle savedInstanceState) {
+        setTheme(R.style.Theme_Linjian_App);
         super.onCreate(savedInstanceState);
+        UITheme startupTheme = UITheme.current(this);
+        SystemBars.applyEdgeToEdge(this, startupTheme.bgTop, startupTheme.bgBottom, startupTheme.dark);
         setContentView(R.layout.activity_main);
         bindViews();
         buildMagazinePages();
@@ -176,7 +188,7 @@ public class MainActivity extends Activity {
         if (refreshGateButton != null) refreshGateButton.setOnClickListener(v -> { updateUI(); Toast.makeText(this, "已刷新守护状态", Toast.LENGTH_SHORT).show(); });
         if (addGateAppButton != null) addGateAppButton.setOnClickListener(v -> addGateApp());
         if (addWeatherLocationButton != null) addWeatherLocationButton.setOnClickListener(v -> addWeatherLocation(true));
-        if (setCurrentWeatherButton != null) setCurrentWeatherButton.setOnClickListener(v -> addWeatherLocation(true));
+        if (setCurrentWeatherButton != null) setCurrentWeatherButton.setOnClickListener(v -> refreshWeatherFromForegroundLocation(true));
         if (checkUpdateButton != null) checkUpdateButton.setOnClickListener(v -> checkForUpdates(true));
         if (downloadUpdateButton != null) downloadUpdateButton.setOnClickListener(v -> downloadLatestApk());
         if (testGuidianButton != null) testGuidianButton.setOnClickListener(v -> { saveSettings(); GuidianState.showPrompt(this, true); CompanionWindowState.recordJourney(this, "回应归电", "回到" + AppPrefs.companionName(this) + "的窗边"); updateUI(); });
@@ -346,7 +358,7 @@ public class MainActivity extends Activity {
         arrow.setColorFilter(UITheme.current(this).primary);
         row.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22)));
         card.addView(row);
-        card.setOnClickListener(v -> showFeaturePanel("天气城市", drawerWeather));
+        card.setOnClickListener(v -> showFeaturePanel("天气地区", drawerWeather));
         card.setClickable(true);
         card.setFocusable(true);
         settings.addView(card, 4, marginBottom(8));
@@ -361,10 +373,11 @@ public class MainActivity extends Activity {
         drawerAppearanceButton = settingsDrawerButton("外观与文案  ›");
         drawerAppearanceButton.setTag("settings_drawer_dynamic_appearance");
         drawerAppearance = cardColumn();
+        drawerAppearanceContent = drawerAppearance;
         drawerAppearance.setTag("dynamic_appearance");
         drawerAppearance.setVisibility(View.GONE);
-        drawerAppearance.addView(title("外观与文案", 16));
-        drawerAppearance.addView(body("调整掌心窗的称呼、首页文案、背景和玻璃质感。系统安全提示保持固定。", 9), matchWrapTop(5));
+        drawerAppearanceContent.addView(title("外观与文案", 16));
+        drawerAppearanceContent.addView(body("调整掌心窗的称呼、首页文案、背景和玻璃质感。系统安全提示保持固定。", 9), matchWrapTop(5));
 
         homeTitleInput = appearanceInput("首页标题", "今天", AppPrefs.KEY_HOME_TITLE);
         homeSubtitleInput = appearanceInput("首页副标题", "看一眼今天，也照顾好自己。", AppPrefs.KEY_HOME_SUBTITLE);
@@ -374,39 +387,39 @@ public class MainActivity extends Activity {
         gateMessageInput = appearanceInput("门禁提示语", "先休息一下，等会儿再回来。", AppPrefs.KEY_GATE_MESSAGE);
         guidianMessageInput = appearanceInput("归电提示语", "很久没回来时，陪伴者会来敲门。", AppPrefs.KEY_GUIDIAN_MESSAGE);
 
-        drawerAppearance.addView(label("自定义文案", 9), matchWrapTop(10));
-        drawerAppearance.addView(homeTitleInput, matchWrapTop(4));
-        drawerAppearance.addView(homeSubtitleInput);
-        drawerAppearance.addView(homeWhisperLabelInput);
-        drawerAppearance.addView(homeWhisperDetailInput);
-        drawerAppearance.addView(homeNextLabelInput);
-        drawerAppearance.addView(gateMessageInput);
-        drawerAppearance.addView(guidianMessageInput);
+        drawerAppearanceContent.addView(label("自定义文案", 9), matchWrapTop(10));
+        drawerAppearanceContent.addView(homeTitleInput, matchWrapTop(6));
+        drawerAppearanceContent.addView(homeSubtitleInput, matchWrapTop(8));
+        drawerAppearanceContent.addView(homeWhisperLabelInput, matchWrapTop(8));
+        drawerAppearanceContent.addView(homeWhisperDetailInput, matchWrapTop(8));
+        drawerAppearanceContent.addView(homeNextLabelInput, matchWrapTop(8));
+        drawerAppearanceContent.addView(gateMessageInput, matchWrapTop(8));
+        drawerAppearanceContent.addView(guidianMessageInput, matchWrapTop(8));
 
-        drawerAppearance.addView(label("自定义背景", 9), matchWrapTop(12));
-        drawerAppearance.addView(body("背景图片只保存在本机，不会进入状态同步或服务器上传。", 9), matchWrapTop(4));
+        drawerAppearanceContent.addView(label("自定义背景", 9), matchWrapTop(14));
+        drawerAppearanceContent.addView(body("背景图片只保存在本机，不会进入状态同步或服务器上传。", 9), matchWrapTop(5));
         LinearLayout bgButtons = horizontal();
         chooseBackgroundButton = actionButton("选择背景图", true);
         resetBackgroundButton = actionButton("恢复默认", false);
         bgButtons.addView(chooseBackgroundButton, weightedWrap(1f, 0));
         bgButtons.addView(resetBackgroundButton, weightedWrap(1f, 6));
-        drawerAppearance.addView(bgButtons, matchWrapTop(7));
+        drawerAppearanceContent.addView(bgButtons, matchWrapTop(8));
         chooseBackgroundButton.setOnClickListener(v -> chooseBackgroundImage());
         resetBackgroundButton.setOnClickListener(v -> resetBackgroundImage());
 
-        drawerAppearance.addView(label("背景与玻璃", 9), matchWrapTop(12));
-        drawerAppearance.addView(body("柔和度", 9), matchWrapTop(4));
+        drawerAppearanceContent.addView(label("背景与玻璃", 9), matchWrapTop(14));
+        drawerAppearanceContent.addView(body("柔和度", 9), matchWrapTop(5));
         backgroundSoftnessSeek = new SeekBar(this); backgroundSoftnessSeek.setMax(60);
         backgroundSoftnessSeek.setProgress(AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SOFTNESS, 18, 0, 60));
-        drawerAppearance.addView(backgroundSoftnessSeek);
-        drawerAppearance.addView(body("背景蒙层", 9), matchWrapTop(4));
+        drawerAppearanceContent.addView(backgroundSoftnessSeek, matchWrapTop(2));
+        drawerAppearanceContent.addView(body("背景蒙层", 9), matchWrapTop(7));
         backgroundScrimSeek = new SeekBar(this); backgroundScrimSeek.setMax(90);
         backgroundScrimSeek.setProgress(AppPrefs.customInt(this, AppPrefs.KEY_BACKGROUND_SCRIM, 26, 0, 90));
-        drawerAppearance.addView(backgroundScrimSeek);
-        drawerAppearance.addView(body("玻璃透明度", 9), matchWrapTop(4));
+        drawerAppearanceContent.addView(backgroundScrimSeek, matchWrapTop(2));
+        drawerAppearanceContent.addView(body("玻璃透明度", 9), matchWrapTop(7));
         glassAlphaSeek = new SeekBar(this); glassAlphaSeek.setMax(35);
         glassAlphaSeek.setProgress(AppPrefs.customInt(this, AppPrefs.KEY_GLASS_ALPHA, 64, 45, 80) - 45);
-        drawerAppearance.addView(glassAlphaSeek);
+        drawerAppearanceContent.addView(glassAlphaSeek, matchWrapTop(2));
         backgroundSoftnessSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar s, int p, boolean fromUser) { if (fromUser) { AppPrefs.get(MainActivity.this).edit().putInt(AppPrefs.KEY_BACKGROUND_SOFTNESS, p).apply(); applyBackground(); } }
             public void onStartTrackingTouch(SeekBar s) {}
@@ -424,7 +437,7 @@ public class MainActivity extends Activity {
         });
         saveAppearanceButton = actionButton("保存并应用", true);
         saveAppearanceButton.setOnClickListener(v -> saveAppearance());
-        drawerAppearance.addView(saveAppearanceButton, matchWrapTop(12));
+        drawerAppearanceContent.addView(saveAppearanceButton, matchWrapTop(14));
         bindDrawer(drawerAppearanceButton, drawerAppearance, "外观与文案");
         settings.addView(drawerAppearanceButton, Math.min(4, settings.getChildCount()), marginBottom(8));
         settings.addView(drawerAppearance, Math.min(5, settings.getChildCount()), marginBottom(8));
@@ -436,6 +449,8 @@ public class MainActivity extends Activity {
         input.setText(AppPrefs.customText(this, key, fallback));
         input.setSingleLine(true);
         input.setTextSize(11);
+        input.setMinHeight(dp(44));
+        input.setPadding(dp(12), 0, dp(12), 0);
         return input;
     }
 
@@ -756,9 +771,11 @@ public class MainActivity extends Activity {
     private View buildDiaryHomePage() {
         LinearLayout root = pageColumn();
         LinearLayout top = horizontal();
+        applySecondaryPageTopInsets(top);
         Button back = iconButton("←", "返回陪伴页");
+        back.setMinWidth(dp(44)); back.setMinHeight(dp(44));
         back.setOnClickListener(v -> showCompanionHomePage());
-        top.addView(back, new LinearLayout.LayoutParams(dp(36), dp(32)));
+        top.addView(back, new LinearLayout.LayoutParams(dp(44), dp(44)));
         top.addView(title("日记本封面", 15), weightedWrap(1f, 10));
         root.addView(top, marginBottom(12));
 
@@ -886,10 +903,11 @@ public class MainActivity extends Activity {
         diaryExpandedHintView = null;
         JSONObject book = DiaryState.bookById(this, diaryBookId);
         LinearLayout top = horizontal();
-        Button back = iconButton("←", "返回日记封面"); back.setOnClickListener(v -> showDiaryHomePage()); top.addView(back, new LinearLayout.LayoutParams(dp(36), dp(32)));
+        applySecondaryPageTopInsets(top);
+        Button back = iconButton("←", "返回日记封面"); back.setMinWidth(dp(44)); back.setMinHeight(dp(44)); back.setOnClickListener(v -> showDiaryHomePage()); top.addView(back, new LinearLayout.LayoutParams(dp(44), dp(44)));
         top.addView(title(book == null ? "TA 的日记" : book.optString("name", "TA 的日记"), 15), weightedWrap(1f, 9));
-        Button search = iconButton("⌕", "搜索日记"); search.setOnClickListener(v -> showDiarySearchDialog()); top.addView(search, new LinearLayout.LayoutParams(dp(36), dp(32)));
-        Button more = iconButton("⋯", "更多"); more.setOnClickListener(v -> showDiaryMoreMenu()); LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dp(36), dp(32)); moreLp.leftMargin = dp(5); top.addView(more, moreLp);
+        Button search = iconButton("⌕", "搜索日记"); search.setMinWidth(dp(44)); search.setMinHeight(dp(44)); search.setOnClickListener(v -> showDiarySearchDialog()); top.addView(search, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        Button more = iconButton("⋯", "更多"); more.setMinWidth(dp(44)); more.setMinHeight(dp(44)); more.setOnClickListener(v -> showDiaryMoreMenu()); LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dp(44), dp(44)); moreLp.leftMargin = dp(5); top.addView(more, moreLp);
         root.addView(top, marginBottom(8));
 
         LinearLayout timelineBar = horizontal();
@@ -914,6 +932,13 @@ public class MainActivity extends Activity {
             TextView emptyText = body(text, 10); emptyText.setGravity(Gravity.CENTER); emptyText.setLineSpacing(dp(4), 1f); empty.addView(emptyText); root.addView(empty);
         }
         return root;
+    }
+
+    private void applySecondaryPageTopInsets(LinearLayout top) {
+        int side = dp(2);
+        int topPadding = dp(10);
+        top.setPadding(side, topPadding, side, 0);
+        SystemBars.applyStatusBarTopPadding(top, side, topPadding, side, 0);
     }
 
     private View buildDiaryDatePageHeader(JSONArray entries) {
@@ -1187,16 +1212,23 @@ public class MainActivity extends Activity {
         LinearLayout root = pageColumn();
 
         LinearLayout top = horizontal();
-        top.setPadding(dp(2), 0, dp(2), 0);
+        int topSide = dp(2);
+        int topPadding = dp(10);
+        top.setPadding(topSide, topPadding, topSide, 0);
+        SystemBars.applyInsetPadding(top, topSide, topPadding, topSide, 0);
         Button back = iconButton("←", "返回守护");
+        back.setMinWidth(dp(44));
+        back.setMinHeight(dp(44));
         back.setOnClickListener(v -> showGuardHomePage());
-        top.addView(back, new LinearLayout.LayoutParams(dp(36), dp(32)));
+        top.addView(back, new LinearLayout.LayoutParams(dp(44), dp(44)));
         View spacer = new View(this);
         top.addView(spacer, weightedWrap(1f, 0));
         Button add = iconButton("＋", "添加日子");
         add.setTextSize(16);
+        add.setMinWidth(dp(44));
+        add.setMinHeight(dp(44));
         add.setOnClickListener(v -> showCalendarEventDialog());
-        top.addView(add, new LinearLayout.LayoutParams(dp(36), dp(32)));
+        top.addView(add, new LinearLayout.LayoutParams(dp(44), dp(44)));
         root.addView(top, marginBottom(6));
         LinearLayout.LayoutParams calendarPageLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); calendarPageLp.topMargin = dp(22); calendarPageLp.bottomMargin = dp(12); root.addView(buildGuardianCalendarPage(), calendarPageLp);
         return root;
@@ -1467,6 +1499,18 @@ public class MainActivity extends Activity {
         SpaceCell(Context context) { super(context); }
     }
 
+    private static class BoundedLinearLayout extends LinearLayout {
+        private final int maxHeight;
+        BoundedLinearLayout(Context context, int maxHeight) {
+            super(context);
+            this.maxHeight = maxHeight;
+        }
+        @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int cappedHeight = MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST);
+            super.onMeasure(widthMeasureSpec, cappedHeight);
+        }
+    }
+
     private final class DiaryPaperDrawable extends Drawable {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         @Override public void draw(Canvas canvas) {
@@ -1666,38 +1710,22 @@ public class MainActivity extends Activity {
         styleTree(panel, UITheme.current(this), true);
         if (isGuidianPanel) styleGuidianDetailPanel();
 
+        if (panel == drawerHomeMode || panel == drawerAppGate || panel == drawerWeather) {
+            showCompactFeatureDialog(title, panel, originalParent, originalIndex, originalParams);
+            return;
+        }
+
         ScrollView scroll = new ScrollView(this);
         scroll.setClipToPadding(false);
         scroll.setPadding(dp(2), dp(2), dp(2), isGuidianPanel ? dp(2) : dp(8));
         scroll.addView(panel, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        AlertDialog.Builder builder = new AlertDialog.Builder(this).setTitle(title);
-        Button doneButton = null;
         if (isGuidianPanel) {
-            LinearLayout content = new LinearLayout(this);
-            content.setOrientation(LinearLayout.VERTICAL);
-            content.setPadding(0, 0, 0, dp(2));
-            content.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            doneButton = new Button(this);
-            doneButton.setText("完成");
-            doneButton.setAllCaps(false);
-            doneButton.setTextSize(15);
-            doneButton.setGravity(Gravity.CENTER);
-            doneButton.setIncludeFontPadding(false);
-            doneButton.setTextColor(Color.WHITE);
-            doneButton.setBackground(UITheme.current(this).pill(true));
-            doneButton.setMinHeight(dp(44));
-            LinearLayout.LayoutParams doneLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
-            doneLp.topMargin = dp(10);
-            content.addView(doneButton, doneLp);
-            builder.setView(content);
-        } else {
-            builder.setView(scroll).setPositiveButton("完成", null);
+            showGuidianFeatureDialog(title, panel, scroll, originalParent, originalIndex, originalParams);
+            return;
         }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this).setTitle(title);
+        builder.setView(scroll).setPositiveButton("完成", null);
         AlertDialog dialog = builder.create();
-        if (doneButton != null) {
-            Button button = doneButton;
-            button.setOnClickListener(v -> dialog.dismiss());
-        }
         dialog.setOnDismissListener(d -> {
             scroll.removeView(panel);
             panel.setVisibility(View.GONE);
@@ -1710,12 +1738,138 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
+    private void showCompactFeatureDialog(String title, View panel, ViewGroup originalParent,
+                                          int originalIndex, ViewGroup.LayoutParams originalParams) {
+        UITheme theme = UITheme.current(this);
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setPadding(dp(24), dp(24), dp(24), dp(24));
+        shell.setBackground(theme.card(26, .90f));
+
+        TextView titleView = title(title, 17);
+        titleView.setGravity(Gravity.CENTER_VERTICAL);
+        shell.addView(titleView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        Drawable panelBackground = panel.getBackground();
+        int panelPaddingLeft = panel.getPaddingLeft();
+        int panelPaddingTop = panel.getPaddingTop();
+        int panelPaddingRight = panel.getPaddingRight();
+        int panelPaddingBottom = panel.getPaddingBottom();
+        float panelElevation = panel.getElevation();
+        View duplicateTitle = null;
+        if ((panel == drawerAppGate || panel == drawerWeather) && panel instanceof LinearLayout && ((LinearLayout) panel).getChildCount() > 0) {
+            View first = ((LinearLayout) panel).getChildAt(0);
+            if (first instanceof TextView) {
+                duplicateTitle = first;
+                duplicateTitle.setVisibility(View.GONE);
+            }
+        }
+        panel.setBackground(null);
+        panel.setElevation(0f);
+        panel.setPadding(0, 0, 0, 0);
+        LinearLayout.LayoutParams panelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        panelLp.topMargin = dp(14);
+        shell.addView(panel, panelLp);
+
+        Button done = new Button(this);
+        done.setText("完成");
+        done.setAllCaps(false);
+        done.setTextSize(15);
+        done.setGravity(Gravity.CENTER);
+        done.setIncludeFontPadding(false);
+        done.setTextColor(Color.WHITE);
+        done.setBackground(theme.pill(true));
+        LinearLayout.LayoutParams doneLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        doneLp.topMargin = dp(14);
+        shell.addView(done, doneLp);
+        done.setOnClickListener(v -> dialog.dismiss());
+
+        View finalDuplicateTitle = duplicateTitle;
+        dialog.setContentView(shell);
+        dialog.setOnDismissListener(d -> {
+            panel.setBackground(panelBackground);
+            panel.setElevation(panelElevation);
+            panel.setPadding(panelPaddingLeft, panelPaddingTop, panelPaddingRight, panelPaddingBottom);
+            if (finalDuplicateTitle != null) finalDuplicateTitle.setVisibility(View.VISIBLE);
+            shell.removeView(panel);
+            panel.setVisibility(View.GONE);
+            if (originalParent != null) {
+                int index = Math.max(0, Math.min(originalIndex, originalParent.getChildCount()));
+                if (originalParams != null) originalParent.addView(panel, index, originalParams); else originalParent.addView(panel, index);
+            }
+            updateUI();
+        });
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.setDimAmount(.30f);
+            window.setLayout((int) (getResources().getDisplayMetrics().widthPixels * .88f), ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    private void showGuidianFeatureDialog(String title, View panel, ScrollView scroll,
+                                          ViewGroup originalParent, int originalIndex,
+                                          ViewGroup.LayoutParams originalParams) {
+        UITheme theme = UITheme.current(this);
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        BoundedLinearLayout shell = new BoundedLinearLayout(this, getResources().getDisplayMetrics().heightPixels - dp(132));
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setPadding(dp(18), dp(16), dp(18), dp(16));
+        shell.setBackground(theme.card(26, .92f));
+
+        TextView titleView = title(title, 18);
+        titleView.setTextColor(theme.text);
+        titleView.setGravity(Gravity.CENTER_VERTICAL);
+        shell.addView(titleView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(30)));
+
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        scrollLp.topMargin = dp(12);
+        shell.addView(scroll, scrollLp);
+
+        Button done = new Button(this);
+        done.setText("完成");
+        done.setAllCaps(false);
+        done.setTextSize(15);
+        done.setGravity(Gravity.CENTER);
+        done.setIncludeFontPadding(false);
+        done.setTextColor(Color.WHITE);
+        done.setBackground(theme.pill(true));
+        done.setMinHeight(dp(44));
+        LinearLayout.LayoutParams doneLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        doneLp.topMargin = dp(12);
+        shell.addView(done, doneLp);
+        done.setOnClickListener(v -> dialog.dismiss());
+
+        dialog.setContentView(shell);
+        dialog.setOnDismissListener(d -> {
+            scroll.removeView(panel);
+            panel.setVisibility(View.GONE);
+            if (originalParent != null) {
+                int index = Math.max(0, Math.min(originalIndex, originalParent.getChildCount()));
+                if (originalParams != null) originalParent.addView(panel, index, originalParams); else originalParent.addView(panel, index);
+            }
+            updateUI();
+        });
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.setDimAmount(.30f);
+            window.setLayout((int) (getResources().getDisplayMetrics().widthPixels * .88f), ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
     private void styleGuidianDetailPanel() {
         if (!(drawerGuidian instanceof LinearLayout)) return;
         UITheme theme = UITheme.current(this);
         LinearLayout panel = (LinearLayout) drawerGuidian;
         panel.setPadding(dp(18), dp(16), dp(18), dp(14));
-        panel.setBackground(theme.card(22, .52f));
+        panel.setBackground(theme.card(22, .90f));
         panel.setElevation(dp(1));
         if (guidianSummaryText != null) {
             guidianSummaryText.setTextSize(15);
@@ -2120,16 +2274,7 @@ public class MainActivity extends Activity {
         UITheme t = UITheme.current(this);
         View root = mainRoot != null ? mainRoot : ((ViewGroup) findViewById(android.R.id.content)).getChildAt(0);
         applyBackground();
-        getWindow().setStatusBarColor(t.bgTop);
-        getWindow().setNavigationBarColor(t.bgBottom);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            int flags = getWindow().getDecorView().getSystemUiVisibility();
-            if (t.dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR; else flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                if (t.dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR; else flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-            }
-            getWindow().getDecorView().setSystemUiVisibility(flags);
-        }
+        SystemBars.applyEdgeToEdge(this, t.bgTop, t.bgBottom, t.dark);
         styleTree(root, t, false);
         styleSettingsPanels(t);
         setTabSelected(tabLife, "life".equals(currentTab));
@@ -2233,23 +2378,23 @@ public class MainActivity extends Activity {
             UITheme t = UITheme.current(this);
             FrameLayout splash = new FrameLayout(this);
             splash.setBackground(t.background());
-            ImageView illustration = new ImageView(this);
-            illustration.setImageResource(R.drawable.cat_window_splash);
-            illustration.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            splash.addView(illustration, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            ImageView mark = new ImageView(this);
+            mark.setImageResource(R.drawable.ic_brand_splash);
+            mark.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            FrameLayout.LayoutParams markLp = new FrameLayout.LayoutParams(dp(118), dp(118), Gravity.CENTER);
+            splash.addView(mark, markLp);
             TextView wordmark = new TextView(this);
-            wordmark.setText("掌心窗"); wordmark.setTextSize(11); wordmark.setLetterSpacing(0.18f); wordmark.setGravity(Gravity.CENTER); wordmark.setTextColor(t.primary); wordmark.setAlpha(0f);
-            FrameLayout.LayoutParams wordmarkLp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38), Gravity.BOTTOM); wordmarkLp.bottomMargin = dp(38);
+            wordmark.setText("掌心窗"); wordmark.setTextSize(12); wordmark.setLetterSpacing(0.12f); wordmark.setGravity(Gravity.CENTER); wordmark.setTextColor(t.primary); wordmark.setAlpha(0f);
+            FrameLayout.LayoutParams wordmarkLp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38), Gravity.CENTER); wordmarkLp.topMargin = dp(132);
             splash.addView(wordmark, wordmarkLp);
             content.addView(splash, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             View page = content.getChildAt(0);
             if (page != null) page.setAlpha(0f);
-            illustration.setAlpha(0f); illustration.setScaleX(0.91f); illustration.setScaleY(0.91f); illustration.setTranslationY(dp(18));
-            illustration.animate().alpha(1f).scaleX(1.035f).scaleY(1.035f).translationY(0f).setDuration(780).withEndAction(() ->
-                    illustration.animate().scaleX(1f).scaleY(1f).translationY(-dp(5)).setDuration(260).start()).start();
-            wordmark.animate().alpha(0.76f).setStartDelay(500).setDuration(360).start();
-            splash.animate().alpha(0f).setStartDelay(1480).setDuration(420).withEndAction(() -> content.removeView(splash)).start();
-            if (page != null) page.animate().alpha(1f).setStartDelay(1420).setDuration(500).start();
+            mark.setAlpha(0f); mark.setScaleX(0.96f); mark.setScaleY(0.96f);
+            mark.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(320).start();
+            wordmark.animate().alpha(0.72f).setStartDelay(120).setDuration(260).start();
+            splash.animate().alpha(0f).setStartDelay(620).setDuration(260).withEndAction(() -> content.removeView(splash)).start();
+            if (page != null) page.animate().alpha(1f).setStartDelay(560).setDuration(300).start();
         });
     }
 
@@ -2281,7 +2426,7 @@ public class MainActivity extends Activity {
         if (v instanceof ViewGroup) {
             ViewGroup g = (ViewGroup) v;
             boolean childInsideCard = insideCard;
-            if (v instanceof LinearLayout && v.getBackground() != null && !"calendar_day".equals(v.getTag()) && !"diary_paper".equals(v.getTag()) && v != ((ViewGroup) findViewById(android.R.id.content)).getChildAt(0)) {
+            if (v instanceof LinearLayout && v.getBackground() != null && !"drawer_gate_add_content".equals(v.getTag()) && !"calendar_day".equals(v.getTag()) && !"diary_paper".equals(v.getTag()) && v != ((ViewGroup) findViewById(android.R.id.content)).getChildAt(0)) {
                 ViewGroup.LayoutParams lp = v.getLayoutParams();
                 boolean bottomBar = lp != null && lp.height <= dp(52) && lp.height >= dp(42);
                 if (!bottomBar) {
@@ -2388,6 +2533,15 @@ public class MainActivity extends Activity {
     private void styleSettingsPanels(UITheme t) {
         View[] panels = new View[]{drawerTheme, drawerGuidianSettings, drawerConnection, drawerPermission, drawerNowState, drawerKnownApps, drawerControlTest, drawerDebug, drawerVersion, drawerAppearance};
         for (View panel : panels) styleSettingsPanel(panel, t);
+        styleAppearancePanel(t);
+        styleConnectionPanel();
+        styleGuidianSettingsPanel(t);
+        styleKnownAppsPanel(t);
+        styleAppGateAddPanel(t);
+        styleVersionPanel(t);
+        styleLongFormSettingsPanel(drawerAppearance);
+        styleLongFormSettingsPanel(drawerPermission);
+        styleLongFormSettingsPanel(drawerNowState);
     }
 
     private void styleSettingsPanel(View panel, UITheme t) {
@@ -2405,6 +2559,186 @@ public class MainActivity extends Activity {
             }
             styleSettingsContent(child, i == 0);
         }
+    }
+
+    private void styleAppearancePanel(UITheme t) {
+        if (drawerAppearanceContent == null) return;
+        for (int i = 0; i < drawerAppearanceContent.getChildCount(); i++) {
+            View child = drawerAppearanceContent.getChildAt(i);
+            ViewGroup.LayoutParams raw = child.getLayoutParams();
+            if (raw instanceof LinearLayout.LayoutParams && i > 0) {
+                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) raw;
+                lp.topMargin = Math.max(lp.topMargin, settingsDim(R.dimen.settings_content_gap));
+                child.setLayoutParams(lp);
+            }
+            styleSettingsContent(child, i == 0);
+        }
+        if (saveAppearanceButton != null) {
+            saveAppearanceButton.setBackground(t.pill(true));
+            saveAppearanceButton.setTextColor(Color.WHITE);
+        }
+    }
+
+    private void styleConnectionPanel() {
+        if (!(drawerConnection instanceof LinearLayout)) return;
+        ((LinearLayout) drawerConnection).setPadding(dp(24), dp(28), dp(24), dp(24));
+    }
+
+    private void styleGuidianSettingsPanel(UITheme t) {
+        if (drawerGuidianSettings instanceof LinearLayout) {
+            ((LinearLayout) drawerGuidianSettings).setPadding(dp(24), dp(28), dp(24), dp(24));
+        }
+        if (guidianReasonInput != null) {
+            guidianReasonInput.setSingleLine(false);
+            guidianReasonInput.setMinLines(3);
+            guidianReasonInput.setMaxLines(5);
+            guidianReasonInput.setGravity(Gravity.TOP | Gravity.START);
+            guidianReasonInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+            guidianReasonInput.setVerticalScrollBarEnabled(true);
+            ViewGroup.LayoutParams lp = guidianReasonInput.getLayoutParams();
+            if (lp != null) { lp.height = ViewGroup.LayoutParams.WRAP_CONTENT; guidianReasonInput.setLayoutParams(lp); }
+        }
+        if (guidianPromptInput != null) {
+            guidianPromptInput.setSingleLine(false);
+            guidianPromptInput.setMinLines(3);
+            guidianPromptInput.setMaxLines(5);
+            guidianPromptInput.setGravity(Gravity.TOP | Gravity.START);
+            guidianPromptInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+            guidianPromptInput.setVerticalScrollBarEnabled(true);
+            ViewGroup.LayoutParams lp = guidianPromptInput.getLayoutParams();
+            if (lp != null) { lp.height = ViewGroup.LayoutParams.WRAP_CONTENT; guidianPromptInput.setLayoutParams(lp); }
+        }
+        if (saveGuidianSettingsButton != null) {
+            saveGuidianSettingsButton.setMinHeight(dp(44));
+            saveGuidianSettingsButton.setBackground(t.pill(true));
+            saveGuidianSettingsButton.setTextColor(Color.WHITE);
+            ViewGroup.LayoutParams raw = saveGuidianSettingsButton.getLayoutParams();
+            if (raw instanceof LinearLayout.LayoutParams) {
+                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) raw;
+                lp.height = dp(44);
+                lp.topMargin = Math.max(lp.topMargin, dp(14));
+                saveGuidianSettingsButton.setLayoutParams(lp);
+            }
+        }
+    }
+
+    private void styleKnownAppsPanel(UITheme t) {
+        if (!(drawerKnownApps instanceof LinearLayout)) return;
+        LinearLayout panel = (LinearLayout) drawerKnownApps;
+        if (knownAppsText != null) {
+            knownAppsText.setTextSize(13);
+            knownAppsText.setLineSpacing(dp(5), 1f);
+            knownAppsText.setPadding(dp(12), dp(10), dp(12), dp(10));
+            knownAppsText.setBackground(t.soft(16));
+            knownAppsText.setMaxLines(9);
+            knownAppsText.setVerticalScrollBarEnabled(true);
+            knownAppsText.setMovementMethod(new android.text.method.ScrollingMovementMethod());
+        }
+        if (appAliasInput != null) appAliasInput.setMinHeight(dp(44));
+        if (appPackageInput != null) appPackageInput.setMinHeight(dp(44));
+        if (addPackageButton != null && testPackageButton != null && addPackageButton.getParent() == panel && testPackageButton.getParent() == panel) {
+            panel.removeView(addPackageButton);
+            panel.removeView(testPackageButton);
+            LinearLayout actions = horizontal();
+            actions.setTag("known_apps_actions");
+            actions.addView(addPackageButton, weightedWrap(1f, 0));
+            actions.addView(testPackageButton, weightedWrap(1f, 8));
+            panel.addView(actions, matchWrapTop(12));
+        }
+        stylePackageActionButton(addPackageButton, t);
+        stylePackageActionButton(testPackageButton, t);
+    }
+
+    private void styleVersionPanel(UITheme t) {
+        if (drawerVersion instanceof LinearLayout) {
+            LinearLayout panel = (LinearLayout) drawerVersion;
+            panel.setPadding(settingsDim(R.dimen.settings_card_padding_horizontal), settingsDim(R.dimen.settings_card_padding_vertical), settingsDim(R.dimen.settings_card_padding_horizontal), dp(20));
+            ViewGroup.LayoutParams raw = panel.getLayoutParams();
+            if (raw != null) { raw.height = ViewGroup.LayoutParams.WRAP_CONTENT; panel.setLayoutParams(raw); }
+        }
+        TextView[] versionTexts = new TextView[]{versionStatusText, updateChangelogText, licenseSummaryText};
+        for (TextView text : versionTexts) {
+            if (text == null) continue;
+            text.setIncludeFontPadding(true);
+            text.setGravity(Gravity.START);
+            text.setSingleLine(false);
+            text.setMaxLines(Integer.MAX_VALUE);
+            text.setEllipsize(null);
+            text.setLineSpacing(dp(5), 1f);
+            ViewGroup.LayoutParams raw = text.getLayoutParams();
+            if (raw instanceof LinearLayout.LayoutParams) {
+                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) raw;
+                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                lp.bottomMargin = Math.max(lp.bottomMargin, text == licenseSummaryText ? dp(2) : dp(4));
+                text.setLayoutParams(lp);
+            }
+        }
+        if (checkUpdateButton != null) styleVersionActionButton(checkUpdateButton, t, false);
+        if (downloadUpdateButton != null) styleVersionActionButton(downloadUpdateButton, t, true);
+    }
+
+    private void styleLongFormSettingsPanel(View panel) {
+        if (!(panel instanceof LinearLayout)) return;
+        LinearLayout column = (LinearLayout) panel;
+        column.setPadding(dp(24), dp(24), dp(24), dp(24));
+        for (int i = 0; i < column.getChildCount(); i++) {
+            View child = column.getChildAt(i);
+            ViewGroup.LayoutParams raw = child.getLayoutParams();
+            if (raw instanceof LinearLayout.LayoutParams && i > 0) {
+                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) raw;
+                lp.topMargin = Math.max(lp.topMargin, i == 1 ? dp(14) : dp(10));
+                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                child.setLayoutParams(lp);
+            }
+            if (child instanceof TextView && !(child instanceof Button) && !(child instanceof CheckBox) && !(child instanceof EditText)) {
+                TextView text = (TextView) child;
+                boolean first = i == 0;
+                if (!first) text.setPadding(dp(8), 0, dp(8), 0);
+                text.setIncludeFontPadding(first);
+                text.setTextSize(first ? 16 : 11);
+                text.setLineSpacing(dp(first ? 3 : 2), 1f);
+                text.setGravity(Gravity.START);
+                text.setSingleLine(false);
+                text.setMaxLines(Integer.MAX_VALUE);
+                text.setEllipsize(null);
+            }
+        }
+    }
+
+    private void styleAppGateAddPanel(UITheme t) {
+        if (drawerGateAdd instanceof LinearLayout) {
+            drawerGateAdd.setTag("drawer_gate_add_content");
+            drawerGateAdd.setBackground(null);
+            drawerGateAdd.setElevation(0f);
+            drawerGateAdd.setPadding(0, 0, 0, 0);
+        }
+        stylePackageActionButton(addGateAppButton, t);
+    }
+
+    private void styleVersionActionButton(Button button, UITheme t, boolean primary) {
+        button.setAllCaps(false);
+        button.setIncludeFontPadding(true);
+        button.setTextSize(15);
+        button.setGravity(Gravity.CENTER);
+        button.setMinHeight(settingsDim(R.dimen.touch_target));
+        button.setPadding(dp(12), 0, dp(12), 0);
+        button.setTextColor(primary ? Color.WHITE : t.text);
+        button.setBackground(primary ? t.pill(true) : t.chip(false));
+        ViewGroup.LayoutParams raw = button.getLayoutParams();
+        if (raw != null) { raw.height = settingsDim(R.dimen.touch_target); button.setLayoutParams(raw); }
+    }
+
+    private void stylePackageActionButton(Button button, UITheme t) {
+        if (button == null) return;
+        button.setAllCaps(false);
+        button.setIncludeFontPadding(false);
+        button.setTextSize(14);
+        button.setGravity(Gravity.CENTER);
+        button.setMinHeight(dp(44));
+        button.setPadding(dp(12), 0, dp(12), 0);
+        button.setBackground(t.chip(false));
+        ViewGroup.LayoutParams raw = button.getLayoutParams();
+        if (raw != null) { raw.height = dp(44); button.setLayoutParams(raw); }
     }
 
     private void styleSettingsContent(View view, boolean first) {
@@ -2439,8 +2773,8 @@ public class MainActivity extends Activity {
         if (view instanceof TextView) {
             TextView text = (TextView) view;
             text.setIncludeFontPadding(false);
-            text.setTextSize(first ? 16 : 13);
-            text.setLineSpacing(dp(4), 1f);
+            text.setTextSize(first ? 16 : 12);
+            text.setLineSpacing(dp(3), 1f);
             text.setGravity(Gravity.CENTER_VERTICAL);
         }
     }
@@ -3167,6 +3501,7 @@ public class MainActivity extends Activity {
             if (overviewWeatherDetail != null) overviewWeatherDetail.setText(city.isEmpty() ? "未设城市" : city);
         }
         long now = System.currentTimeMillis();
+        if (!weatherFetching && now - lastWeatherFetchAt > 45_000L) refreshWeatherFromForegroundLocation(false);
         if (!city.isEmpty() && !weatherFetching && !WeatherLive.isFresh(this, city, 15L * 60L * 1000L) && now - lastWeatherFetchAt > 45_000L) {
             weatherFetching = true;
             lastWeatherFetchAt = now;
@@ -3179,6 +3514,48 @@ public class MainActivity extends Activity {
                 }
             }));
         }
+    }
+
+    private void refreshWeatherFromForegroundLocation(boolean userInitiated) {
+        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            if (weatherLocationPermissionRequestInFlight || (!userInitiated && weatherLocationPermissionRequestedThisActivity)) return;
+            weatherLocationPermissionRequestInFlight = true;
+            weatherLocationPermissionRequestedThisActivity = true;
+            requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION}, 24);
+            return;
+        }
+        weatherLocationPermissionRequestInFlight = false;
+        if (!userInitiated && weatherLocationAttemptedThisActivity) return;
+        weatherLocationAttemptedThisActivity = true;
+        try {
+            LocationManager manager = (LocationManager) getSystemService(LOCATION_SERVICE);
+            if (manager == null || (!manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) && !manager.isProviderEnabled(LocationManager.GPS_PROVIDER))) {
+                if (userInitiated) Toast.makeText(this, "定位服务未开启，继续使用已有天气", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String provider = manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ? LocationManager.NETWORK_PROVIDER : LocationManager.GPS_PROVIDER;
+            weatherFetching = true; lastWeatherFetchAt = System.currentTimeMillis();
+            manager.requestSingleUpdate(provider, new android.location.LocationListener() {
+                @Override public void onLocationChanged(Location location) {
+                    String place = "当前位置";
+                    try { java.util.List<android.location.Address> list = new android.location.Geocoder(MainActivity.this, Locale.CHINA).getFromLocation(location.getLatitude(), location.getLongitude(), 1); if (list != null && !list.isEmpty() && list.get(0).getLocality() != null) place = list.get(0).getLocality(); } catch (Exception ignored) { }
+                    WeatherLive.refreshCoordinatesAsync(MainActivity.this, location.getLatitude(), location.getLongitude(), place, weather -> runOnUiThread(() -> { weatherFetching = false; updateUI(); }));
+                }
+                @Override public void onProviderDisabled(String p) { weatherFetching = false; }
+                @Override public void onProviderEnabled(String p) { }
+                @Override public void onStatusChanged(String p, int s, Bundle e) { }
+            }, getMainLooper());
+        } catch (Exception e) { weatherFetching = false; if (userInitiated) Toast.makeText(this, "定位失败，继续使用已有天气", Toast.LENGTH_SHORT).show(); }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != 24) return;
+        weatherLocationPermissionRequestInFlight = false;
+        boolean granted = false;
+        for (int result : grantResults) if (result == PackageManager.PERMISSION_GRANTED) { granted = true; break; }
+        if (granted) refreshWeatherFromForegroundLocation(false);
+        else { weatherLocationAttemptedThisActivity = true; updateUI(); }
     }
 
     private void updateHeroOverview(JSONObject s) {
