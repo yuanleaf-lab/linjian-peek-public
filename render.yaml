@@ -22,8 +22,9 @@ services:
     name: zhangxinchuang-server
     runtime: python
     plan: free
+    autoDeployTrigger: 'off'
     rootDir: server
-    buildCommand: echo ok
+    buildCommand: pip install -r requirements.txt
     startCommand: python linjian_server.py
     envVars:
       - fromGroup: zhangxinchuang-public-shared
@@ -31,11 +32,22 @@ services:
         value: 0.0.0.0
       - key: LINJIAN_KEEP
         value: 3
+      - key: LINJIAN_PROACTIVE_STORE
+        value: postgres
+      - key: LINJIAN_PROACTIVE_SEND_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: LINJIAN_SCHEDULER_TOKEN
+        sync: false
+      - key: LINJIAN_PROACTIVE_ADMIN_TOKEN
+        sync: false
 
   - type: web
     name: zhangxinchuang-mcp
     runtime: node
     plan: free
+    autoDeployTrigger: 'off'
     rootDir: mcp
     buildCommand: npm install
     startCommand: npm start

@@ -7,6 +7,11 @@ server/.env
 mcp/.env
 .venv/
 venv/
+/server/data/*.sqlite
+/server/data/*.sqlite3
+/server/data/*.db
+/server/tests/tmp*/
+/server/migrations_test/
 
 # Node
 node_modules/

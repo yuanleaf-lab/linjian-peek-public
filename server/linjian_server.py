@@ -10,6 +10,9 @@
 from __future__ import annotations
 
 import calendar
+from concurrent.futures import ThreadPoolExecutor
+import hmac
+from datetime import datetime
 import json
 import os
 import subprocess
@@ -18,8 +21,25 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Lock
+from threading import Lock, BoundedSemaphore, Thread
 from urllib.parse import parse_qs, urlparse
+from proactive_store import ProactiveStore
+from postgres_proactive_store import PostgresProactiveStore
+from proactive_scheduler import DEFAULT_POLICY, run_candidate
+from manual_event_source import ManualEventSource
+from trigger_candidate import scan_manual_events, dispatch_candidates
+
+_late_report_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='proactive-report')
+_late_report_slots = BoundedSemaphore(32)
+
+
+def _report_unknown_command(store, command_id, ok, error_code):
+    try:
+        store.report(command_id, ok, now_iso(), error_code)
+    except Exception:
+        pass
+    finally:
+        _late_report_slots.release()
 
 DEFAULT_PORT = 8513
 DEFAULT_KEEP = 3
@@ -78,12 +98,31 @@ class State:
         here = Path(__file__).resolve().parent
         load_dotenv(here / ".env")
         self.token = os.environ.get("LINJIAN_TOKEN", "").strip()
+        self.scheduler_token = os.environ.get("LINJIAN_SCHEDULER_TOKEN", "").strip()
+        self.proactive_admin_token = os.environ.get("LINJIAN_PROACTIVE_ADMIN_TOKEN", "").strip()
+        if self.proactive_admin_token and self.proactive_admin_token in (self.token, self.scheduler_token):
+            raise ValueError("proactive_admin_token_must_be_distinct")
         self.port = int(os.environ.get("PORT", os.environ.get("LINJIAN_PORT", DEFAULT_PORT)))
         self.host = os.environ.get("LINJIAN_HOST", "0.0.0.0")
         self.keep = int(os.environ.get("LINJIAN_KEEP", DEFAULT_KEEP))
         self.hook = os.environ.get("LINJIAN_HOOK", "").strip()
         data_dir = os.environ.get("LINJIAN_DATA_DIR", str(here / "data"))
         self.data_dir = Path(data_dir).resolve()
+        store_mode = os.environ.get("LINJIAN_PROACTIVE_STORE", "sqlite").strip().lower()
+        if store_mode == "sqlite":
+            self.proactive_store = ProactiveStore(self.data_dir / "proactive.sqlite3")
+        elif store_mode == "postgres":
+            self.proactive_store = PostgresProactiveStore(os.environ.get("DATABASE_URL", ""))
+        else:
+            raise ValueError("invalid_proactive_store")
+        self.proactive_store_mode = store_mode
+        self.proactive_readiness = {'ready': store_mode == 'sqlite',
+                                    'status': 'ready' if store_mode == 'sqlite' else 'unavailable',
+                                    **({'error': 'preflight_pending'} if store_mode == 'postgres' else {})}
+        self.proactive_readiness_lock = Lock()
+        self.manual_event_source = ManualEventSource(self.proactive_store)
+        self.proactive_lock = Lock()
+        self.proactive_enabled = os.environ.get("LINJIAN_PROACTIVE_SEND_ENABLED", "").lower() == "true"
         self.shots_dir = self.data_dir / "screenshots"
         self.shots_dir.mkdir(parents=True, exist_ok=True)
         self.commands: list[dict] = []
@@ -97,6 +136,27 @@ class State:
         self.activity_path = self.data_dir / "activity_events.json"
         self.activity_lock = Lock()
         self.activity_events = self._load_activity_events()
+
+    def refresh_proactive_readiness(self):
+        if self.proactive_store_mode == 'sqlite':
+            return self.proactive_readiness
+        try:
+            result = self.proactive_store.readiness()
+        except Exception:
+            result = {'ready': False, 'status': 'unavailable', 'error': 'database_unavailable'}
+        with self.proactive_readiness_lock:
+            self.proactive_readiness = result
+        return result
+
+    def proactive_is_ready(self):
+        with self.proactive_readiness_lock:
+            return self.proactive_readiness['ready']
+
+    def mark_proactive_unavailable(self):
+        if self.proactive_store_mode == 'postgres':
+            with self.proactive_readiness_lock:
+                self.proactive_readiness = {'ready': False, 'status': 'unavailable',
+                                            'error': 'database_unavailable'}
 
     def _load_activity_events(self) -> list[dict]:
         try:
@@ -273,6 +333,10 @@ class Handler(BaseHTTPRequestHandler):
     state: State
 
     def log_message(self, fmt: str, *args) -> None:
+        # BaseHTTPRequestHandler's default request line contains query parameters.
+        if fmt.startswith('"%s"') and args:
+            request_line = str(args[0]).split("?", 1)[0]
+            args = (request_line, *args[1:])
         sys.stderr.write("[linjian-unified] %s - %s\n" % (self.address_string(), fmt % args))
 
     def _send_bytes(self, code: int, body: bytes, content_type: str) -> None:
@@ -287,9 +351,18 @@ class Handler(BaseHTTPRequestHandler):
         self._send_bytes(code, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
     def _token_ok(self) -> bool:
-        qs = parse_qs(urlparse(self.path).query)
-        supplied = self.headers.get("X-Auth-Token", "") or qs.get("token", [""])[0]
-        return bool(self.state.token) and supplied == self.state.token
+        supplied = self.headers.get("X-Auth-Token", "")
+        return bool(self.state.token) and hmac.compare_digest(supplied, self.state.token)
+
+    def _require_scheduler_token(self) -> bool:
+        supplied = self.headers.get("X-Scheduler-Token", "")
+        if self.state.scheduler_token and hmac.compare_digest(supplied, self.state.scheduler_token): return True
+        self._json(403, {"ok": False, "error": ERR_BAD_TOKEN}); return False
+
+    def _require_proactive_admin_token(self) -> bool:
+        supplied = self.headers.get('X-Proactive-Admin-Token', '')
+        if self.state.proactive_admin_token and hmac.compare_digest(supplied, self.state.proactive_admin_token): return True
+        self._json(403, {'ok': False, 'error': ERR_BAD_TOKEN}); return False
 
     def _require_token(self) -> bool:
         if self._token_ok(): return True
@@ -318,6 +391,10 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/health"):
             self._json(200, {"ok": True, "service": "linjian-public", "name": "掌心窗", "version": VERSION, "tools": sorted(ALLOWED_ACTIONS), "guidian": True, "calendar": True, "diary": True, "diary_storage": "phone_local", "app_gate": True})
             return
+        if path == '/api/proactive/readiness':
+            if not self._require_proactive_admin_token(): return
+            result = self.state.refresh_proactive_readiness()
+            self._json(200 if result['ready'] else 503, result); return
         if path == "/api/companion/state":
             if not self._require_token(): return
             limit = max(1, min(50, int(qs.get("limit", ["20"])[0] or 20)))
@@ -342,11 +419,30 @@ class Handler(BaseHTTPRequestHandler):
             device_id = qs.get("device_id", [DEFAULT_DEVICE])[0] or DEFAULT_DEVICE
             with self.state.commands_lock:
                 idx = next((i for i, c in enumerate(self.state.commands) if c.get("device_id") == device_id and c.get("status") == "pending"), None)
-                if idx is None:
-                    self._json(200, {"ok": True, "command": None}); return
-                cmd = self.state.commands.pop(idx)
-                cmd["status"] = "dispatched"; cmd["dispatched_at"] = now_iso()
-                self.state.command_history[cmd.get("id", "")] = dict(cmd)
+                if idx is not None:
+                    cmd = self.state.commands.pop(idx)
+                    cmd["status"] = "dispatched"; cmd["dispatched_at"] = now_iso()
+                    self.state.command_history[cmd.get("id", "")] = dict(cmd)
+            if idx is not None:
+                self._json(200, {"ok": True, "command": cmd}); return
+            proactive = None
+            if self.state.proactive_enabled and self.state.proactive_is_ready():
+                try:
+                    self.state.proactive_store.expire(now_iso())
+                    self.state.proactive_store.recover_timeouts(now_iso())
+                    cmd_id = str(uuid.uuid4())
+                    proactive = self.state.proactive_store.claim(device_id, cmd_id, now_iso())
+                except Exception:
+                    # A storage outage must not hold the ordinary command queue lock.
+                    self.state.mark_proactive_unavailable()
+                    proactive = None
+            if proactive is None:
+                self._json(200, {"ok": True, "command": None}); return
+            cmd = make_command(device_id, "send_notification", payload={"title": proactive["title"], "message": proactive["message"]})
+            cmd["id"] = cmd_id
+            cmd["status"] = "dispatched"; cmd["dispatched_at"] = now_iso()
+            with self.state.commands_lock:
+                self.state.command_history[cmd_id] = {**cmd, "_proactive": True}
             self._json(200, {"ok": True, "command": cmd})
             return
         if path == "/api/latest.json":
@@ -386,6 +482,78 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == '/api/proactive/events':
+            if not self._require_proactive_admin_token(): return
+            if not self.state.proactive_is_ready():
+                self._json(503, {'ok': False, 'error': 'proactive_store_unavailable'}); return
+            data = self._read_json()
+            try:
+                event = self.state.manual_event_source.create(data)
+            except (ValueError, KeyError, TypeError):
+                self._json(400, {'ok': False, 'error': 'invalid_manual_event'}); return
+            except Exception:
+                self.state.mark_proactive_unavailable()
+                self._json(503, {'ok': False, 'error': 'proactive_store_unavailable'}); return
+            self._json(201, {'ok': True, 'event': event}); return
+        if path.startswith('/api/proactive/events/'):
+            if not self._require_proactive_admin_token(): return
+            if not self.state.proactive_is_ready():
+                self._json(503, {'ok': False, 'error': 'proactive_store_unavailable'}); return
+            event_id = path.removeprefix('/api/proactive/events/')
+            if not event_id or '/' in event_id:
+                self._json(404, {'ok': False, 'error': ERR_NOT_FOUND}); return
+            data = self._read_json()
+            try:
+                with self.state.proactive_lock:
+                    if data.get('action') == 'cancel':
+                        event = self.state.manual_event_source.cancel(event_id)
+                    elif data.get('action') == 'update':
+                        event = self.state.manual_event_source.update(event_id, data.get('changes') or {})
+                    else:
+                        raise ValueError('invalid_action')
+            except (ValueError, KeyError, TypeError):
+                self._json(400, {'ok': False, 'error': 'invalid_manual_event_action'}); return
+            except Exception:
+                self.state.mark_proactive_unavailable()
+                self._json(503, {'ok': False, 'error': 'proactive_store_unavailable'}); return
+            self._json(200, {'ok': True, 'event': event}); return
+        if path == "/api/proactive/tick":
+            if not self._require_scheduler_token(): return
+            if not self.state.proactive_is_ready():
+                self._json(503, {'ok': False, 'error': 'proactive_store_unavailable'}); return
+            data = self._read_json()
+            candidates = data.get("candidates", [])
+            if not isinstance(candidates, list) or len(candidates) > 20:
+                self._json(400, {"ok": False, "error": "invalid_candidates"}); return
+            simulate = data.get("simulate") is not False
+            if not simulate and not self.state.proactive_enabled:
+                self._json(403, {"ok": False, "error": "proactive_send_disabled"}); return
+            policy = {**DEFAULT_POLICY, "enabled": True}
+            results = []
+            for candidate in candidates:
+                if not isinstance(candidate, dict) or any(not isinstance(candidate.get(k), str) or not candidate[k].strip() for k in ("device_id", "event_id", "topic", "message", "expires_at")):
+                    self._json(400, {"ok": False, "error": "invalid_candidate"}); return
+                if any(len(candidate[k]) > limit for k, limit in (("device_id", 100), ("event_id", 200), ("topic", 100), ("message", 1000), ("expires_at", 40))):
+                    self._json(400, {"ok": False, "error": "candidate_too_long"}); return
+                try:
+                    expiry = datetime.fromisoformat(candidate["expires_at"].replace("Z", "+00:00"))
+                    if expiry.tzinfo is None: raise ValueError("timezone_required")
+                except ValueError:
+                    self._json(400, {"ok": False, "error": "invalid_expiry"}); return
+            try:
+                with self.state.proactive_lock:
+                    self.state.proactive_store.expire(now_iso())
+                    self.state.proactive_store.recover_timeouts(now_iso())
+                    generated = scan_manual_events(self.state.manual_event_source, self.state.proactive_store)
+                    source_results = dispatch_candidates(self.state.proactive_store, policy=policy, simulate=simulate)
+                    for candidate in candidates:
+                        results.append(run_candidate(self.state.proactive_store, candidate, policy, simulate=simulate))
+            except (ValueError, KeyError) as exc:
+                self._json(400, {"ok": False, "error": "invalid_candidate", "detail": str(exc)}); return
+            except Exception:
+                self.state.mark_proactive_unavailable()
+                self._json(503, {"ok": False, "error": "proactive_store_unavailable"}); return
+            self._json(200, {"ok": True, "simulated": simulate, "generated_candidates": generated, "source_results": source_results, "results": results}); return
         if path == "/api/companion/whisper":
             if not self._require_token(): return
             data = self._read_json()
@@ -444,6 +612,25 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_token(): return
             data = self._read_json()
             cid = data.get("command_id") or data.get("id") or ""
+            with self.state.commands_lock:
+                known_cmd = self.state.command_history.get(cid)
+                report_proactive = known_cmd is None or known_cmd.get("_proactive") is True
+            if known_cmd is None:
+                # After a restart, ordinary command IDs are also unknown. Resolve
+                # possible late proactive reports off the request thread.
+                if cid and _late_report_slots.acquire(blocking=False):
+                    try:
+                        _late_report_pool.submit(_report_unknown_command, self.state.proactive_store,
+                                                 cid, bool(data.get('ok')),
+                                                 str(data.get('error_code') or data.get('result') or ''))
+                    except RuntimeError:
+                        _late_report_slots.release()
+            elif report_proactive and self.state.proactive_is_ready():
+                try:
+                    self.state.proactive_store.report(cid, bool(data.get("ok")), now_iso(), str(data.get("error_code") or data.get("result") or ""))
+                except Exception:
+                    # Preserve the ordinary command report path if proactive storage is down.
+                    pass
             completed_cmd = None
             with self.state.commands_lock:
                 cmd = self.state.command_history.get(cid)
@@ -505,8 +692,13 @@ def main() -> None:
     if not state.token or state.token == "please-change-me-to-a-long-random-token":
         sys.stderr.write("拒绝启动：请先设置 LINJIAN_TOKEN 为长随机密钥。\n")
         sys.exit(1)
+    if state.scheduler_token and hmac.compare_digest(state.scheduler_token, state.token):
+        sys.stderr.write("拒绝启动：LINJIAN_SCHEDULER_TOKEN 必须不同于 LINJIAN_TOKEN。\n")
+        sys.exit(1)
     Handler.state = state
     httpd = ThreadingHTTPServer((state.host, state.port), Handler)
+    if state.proactive_store_mode == 'postgres':
+        Thread(target=state.refresh_proactive_readiness, daemon=True, name='proactive-preflight').start()
     print("=" * 56)
     print(f"  掌心窗 unified v{VERSION}")
     print(f"  listening: http://{state.host}:{state.port}")

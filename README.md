@@ -1,5 +1,47 @@
 # 掌心窗公开版 v0.3.7.2
 
+## 存储层阶段 1.5-E-C（本地实现，尚未连接生产 PostgreSQL）
+
+生产切换前代码预检：Render Blueprint 的 Python 构建现按 `server/requirements.txt` 安装依赖。PostgreSQL 模式在服务启动后由后台线程执行只读 schema 预检，不自动迁移；未通过时主动消息入口返回 503，普通命令和 `/health` 继续可用。管理 token 可访问 `GET /api/proactive/readiness`，结果只含 `ready`、`status` 与安全错误类别；修复数据库或执行独立 migration 后可再次调用该接口刷新状态。连接和 SQL 等待均有超时。进程重启后无法从内存识别的回报在后台限量查询主动消息记录，不阻塞普通命令回报。
+
+上线前仍须独立运行 migration、核对线上旧 SQLite 数据是否需要保留，并配置生产 `DATABASE_URL` 与各独立 token。当前没有自动导入 SQLite 数据；真实主动发送默认关闭。本地代码改动不会修改线上 Render 配置。
+
+SQLite 开发库升级到 schema v4，新增 `proactive_policy` 和 `dispatch_attempts`，保留原有三张表与旧库自动升级。已保存的设备策略会覆盖调用方传入的临时策略；全局 `LINJIAN_PROACTIVE_SEND_ENABLED` 仍默认关闭。每次手机领取都会留下独立派发记录，重试不再丢掉旧 `command_id` 的历史关联；旧尝试的迟到回报不能覆盖正在进行的新尝试。
+
+`server/postgres_proactive_store.py` 已实现 PostgreSQL 读写，构造时不连接数据库。`LINJIAN_PROACTIVE_STORE` 默认为 `sqlite`；设为 `postgres` 时必须提供 `DATABASE_URL`，缺失会启动失败，连接故障不会回退 SQLite。普通命令轮询和设备回报在主动消息存储故障时继续处理；主动 tick 返回 `503 proactive_store_unavailable`。真实主动发送仍由 `LINJIAN_PROACTIVE_SEND_ENABLED` 控制，默认关闭。
+
+PostgreSQL schema 不会随服务启动自动创建。准备好**单独授权的数据库**后，在服务启动前显式运行 `python server/postgres_migrate.py`，它读取 `DATABASE_URL`，按版本执行 `server/migrations/postgres/*.sql`，并在同一事务写入 `schema_migrations`。失败的版本回滚，已应用版本不重复执行。本地一次性 PostgreSQL 测试容器已验证迁移、行为对照和就绪预检；生产数据库与线上 SQLite 数据仍未核查。当前代码没有自动搬迁 SQLite 数据，也没有创建生产数据库或部署。
+
+## 手动事项事件源（阶段 1.5-C，本地开发）
+
+服务端现可保存一次性的用户明确事项，并在受保护的 tick 中扫描到期事项：`manual_events → trigger_candidates → proactive_messages`。事项和候选写入 `LINJIAN_DATA_DIR/proactive.sqlite3`，当前 schema 版本为 4。时间使用带时区的 ISO 8601；后端统一转为 UTC。未到期不生成候选，过期不补发；重复 tick 使用设备、事项 ID 和修订号去重。修改或取消事项会取消尚未发送的旧候选，并使旧的 `queued` 消息失效；已被手机领取的通知无法撤回。
+
+管理接口使用单独的 `LINJIAN_PROACTIVE_ADMIN_TOKEN` 请求头 `X-Proactive-Admin-Token`，不接受设备或调度 token。`POST /api/proactive/events` 创建事项，请求示例：
+
+```json
+{"device_id":"android-phone","title":"考试","message":"记得带准考证","due_at":"2026-12-01T08:00:00+08:00","expires_at":"2026-12-01T09:00:00+08:00"}
+```
+
+`POST /api/proactive/events/{id}` 使用 `{"action":"update","changes":{"message":"新的提醒内容"}}` 修改，或 `{"action":"cancel"}` 取消。修改会增加修订号。两个接口都不会直接发送通知。调度入口仍为 `POST /api/proactive/tick`，使用 `X-Scheduler-Token`；不传 `candidates` 或传空数组时也会扫描手动事项。默认 `simulate: true`：扫描会持久化候选，但不入队或发送。响应中的 `generated_candidates` 是新候选数，`source_results` 是事项候选的规则结果，`results` 是直接提交候选的旧接口结果。真实入队仍需显式 `simulate: false` 且 `LINJIAN_PROACTIVE_SEND_ENABLED=true`；默认关闭。
+
+目前没有内置定时触发器；没有 tick 就不会按时扫描。SQLite 仍只适合本地开发及单实例试运行。测试命令：`python -m unittest discover -s server/tests -v`，测试只使用临时 SQLite 和本地 HTTP，不连接真实设备。
+
+## 主动消息后端实验（默认关闭）
+
+`server` 现提供第一阶段的规则调度框架。它不会自行定时运行，也不会生成候选事件；受保护的 `POST /api/proactive/tick` 接收最多 20 条候选，并按安静时段（北京时间 23:30–08:00）、每日最多 2 条、240 分钟冷却和同日主题去重给出 `send`、`defer` 或 `skip`。请求默认 `simulate: true`，仅返回判断，不写入消息记录或发送通知。
+
+真实入队需要同时满足：服务器设置 `LINJIAN_PROACTIVE_SEND_ENABLED=true`，且请求明确传入 `simulate: false`。未启用时真实请求返回 403。候选需包含 `device_id`、`event_id`、`topic`、`message`、ISO 8601 `expires_at`，可选 `title`。例如：
+
+```json
+{"simulate":true,"candidates":[{"device_id":"android-phone","event_id":"example-1","topic":"plan","title":"掌心窗","message":"这是模拟候选","expires_at":"2026-12-31T12:00:00Z"}]}
+```
+
+调度入口必须单独配置 `LINJIAN_SCHEDULER_TOKEN` 并传 `X-Scheduler-Token`；设备和既有 MCP 接口仍使用 `LINJIAN_TOKEN` 的 `X-Auth-Token`。URL 查询参数中的 token 不再用于鉴权，HTTP 日志不记录查询参数。真实消息写入 `LINJIAN_DATA_DIR/proactive.sqlite3`，手机现有 `/api/poll` 领取通知命令，`/api/device/report` 更新为 `completed` 或 `failed`。到期的 `queued`、`deferred` 消息在调度或手机轮询时清理为 `expired`。已领取消息五分钟没有回报会标记为 `failed`，错误码为 `dispatch_outcome_unknown`，不会自动重发；迟到的匹配回报仍可修正状态。明确的临时失败最多允许两次领取，需再次提交同一候选触发重试，并遵守五分钟退避。`completed` 只代表 Android 报告执行成功，不代表用户已阅读。相同设备、事件和主题只保留一条记录；延后的候选可再次提交以重新判断。
+
+本阶段 SQLite 仅用于开发与单实例运行；现有 JSON 数据不迁移。容器临时磁盘、多个服务实例或进程重启后的设备状态不能当作生产持久性保证。部署前须确定持久存储、外部定时触发和多实例协调方案。此阶段未接入 Notion、AI 或 ChatGPT OAuth。
+
+本地验证：在仓库目录运行 `python -m unittest discover -s server/tests -v`。测试使用本地临时 SQLite 和 HTTP 服务，不向真实手机发送通知。
+
 ## v0.3.7.2 快速修复
 
 - 补充 `server/Dockerfile`、`.dockerignore` 与 `requirements.txt`，避免 Railway 在 server 服务构建阶段无法识别 Python 项目。Railway server 服务现在推荐：Root Directory=`server`，Build Command 留空，Start Command 留空，由 Dockerfile 启动 `python linjian_server.py`。
