@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from postgres_migrate import migrate
-from postgres_proactive_store import PostgresProactiveStore
+from postgres_proactive_store import PostgresProactiveStore, _connection_kwargs
 from proactive_store import ProactiveStore
 from linjian_server import Handler, State
 
@@ -55,6 +55,16 @@ class FakeConnection:
 
 
 class PostgresStoreTests(unittest.TestCase):
+    def test_pooled_neon_connection_does_not_send_startup_options(self):
+        pooled = _connection_kwargs(
+            'postgresql://user:secret@ep-example-pooler.us-east-2.aws.neon.tech/proactive'
+        )
+        direct = _connection_kwargs(
+            'postgresql://user:secret@ep-example.us-east-2.aws.neon.tech/proactive'
+        )
+        self.assertNotIn('options', pooled)
+        self.assertEqual(direct['options'], '-c statement_timeout=3000 -c lock_timeout=3000')
+
     def test_store_selection_requires_url_without_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
             with patch.dict('os.environ', {'LINJIAN_DATA_DIR': temp, 'LINJIAN_PROACTIVE_STORE': 'sqlite'}):

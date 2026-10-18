@@ -148,6 +148,13 @@ class ProactiveTests(unittest.TestCase):
         server = None
         try:
             Handler.state = State()
+            local_now = datetime.now(timezone.utc) + timedelta(hours=8)
+            Handler.state.proactive_store.set_policy("phone", {
+                "enabled": True,
+                "quiet_start": (local_now - timedelta(hours=2)).strftime("%H:%M"),
+                "quiet_end": (local_now - timedelta(hours=1)).strftime("%H:%M"),
+                "cooldown_minutes": 0,
+            }, datetime.now(timezone.utc).isoformat())
             server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
             threading.Thread(target=server.serve_forever, daemon=True).start()
             base = f"http://127.0.0.1:{server.server_port}"

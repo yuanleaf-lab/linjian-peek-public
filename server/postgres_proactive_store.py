@@ -1,6 +1,7 @@
 """PostgreSQL adapter. Each operation commits or rolls back as one transaction."""
 import uuid
 from datetime import datetime, time, timedelta, timezone
+from urllib.parse import urlsplit
 
 from proactive_store import DISPATCH_TIMEOUT_SECONDS, MAX_ATTEMPTS, RETRYABLE_ERRORS, RETRY_DELAY_SECONDS, iso
 from proactive_store_interface import ProactiveStoreProtocol
@@ -10,14 +11,23 @@ class PostgresStoreNotReady(RuntimeError):
     pass
 
 
+def _connection_kwargs(url):
+    kwargs = {'connect_timeout': 5}
+    hostname = (urlsplit(url).hostname or '').lower()
+    # Neon pooled URLs are served by PgBouncer. Its transaction pool rejects
+    # these PostgreSQL startup options before authentication completes.
+    if not (hostname.endswith('.neon.tech') and '-pooler.' in hostname):
+        kwargs['options'] = '-c statement_timeout=3000 -c lock_timeout=3000'
+    return kwargs
+
+
 def _default_connection_factory(url):
     try:
         import psycopg
         from psycopg.rows import dict_row
     except ImportError as exc:
         raise PostgresStoreNotReady('postgres_driver_unavailable') from exc
-    return psycopg.connect(url, row_factory=dict_row, connect_timeout=5,
-                           options='-c statement_timeout=3000 -c lock_timeout=3000')
+    return psycopg.connect(url, row_factory=dict_row, **_connection_kwargs(url))
 
 
 def _value(value):
