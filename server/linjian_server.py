@@ -12,7 +12,7 @@ from __future__ import annotations
 import calendar
 from concurrent.futures import ThreadPoolExecutor
 import hmac
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import subprocess
@@ -27,7 +27,7 @@ from proactive_store import ProactiveStore
 from postgres_proactive_store import PostgresProactiveStore
 from proactive_scheduler import DEFAULT_POLICY, run_candidate
 from manual_event_source import ManualEventSource
-from trigger_candidate import scan_manual_events, dispatch_candidates
+from trigger_candidate import scan_manual_events, preview_manual_events, dispatch_candidates
 
 _late_report_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='proactive-report')
 _late_report_slots = BoundedSemaphore(32)
@@ -542,12 +542,20 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(400, {"ok": False, "error": "invalid_expiry"}); return
             try:
                 with self.state.proactive_lock:
-                    self.state.proactive_store.expire(now_iso())
-                    self.state.proactive_store.recover_timeouts(now_iso())
-                    generated = scan_manual_events(self.state.manual_event_source, self.state.proactive_store)
-                    source_results = dispatch_candidates(self.state.proactive_store, policy=policy, simulate=simulate)
+                    tick_now = datetime.now(timezone.utc)
+                    if simulate:
+                        generated = 0
+                        source_results = preview_manual_events(
+                            self.state.manual_event_source, self.state.proactive_store, tick_now, policy,
+                        )
+                    else:
+                        stamp = tick_now.isoformat().replace("+00:00", "Z")
+                        self.state.proactive_store.expire(stamp)
+                        self.state.proactive_store.recover_timeouts(stamp)
+                        generated = scan_manual_events(self.state.manual_event_source, self.state.proactive_store, tick_now)
+                        source_results = dispatch_candidates(self.state.proactive_store, tick_now, policy, simulate=False)
                     for candidate in candidates:
-                        results.append(run_candidate(self.state.proactive_store, candidate, policy, simulate=simulate))
+                        results.append(run_candidate(self.state.proactive_store, candidate, policy, tick_now, simulate=simulate))
             except (ValueError, KeyError) as exc:
                 self._json(400, {"ok": False, "error": "invalid_candidate", "detail": str(exc)}); return
             except Exception:

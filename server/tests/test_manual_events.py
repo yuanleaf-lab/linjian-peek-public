@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from proactive_store import ProactiveStore
 from manual_event_source import ManualEventSource
+from proactive_scheduler import run_candidate
 from trigger_candidate import scan_manual_events, dispatch_candidates
 from linjian_server import Handler, State
 
@@ -96,9 +97,10 @@ class ManualEventTests(unittest.TestCase):
             created = post('/api/proactive/events', payload, {'X-Proactive-Admin-Token': 'admin'})
             self.assertEqual(created['event']['status'], 'active')
             tick = post('/api/proactive/tick', {'candidates': []}, {'X-Scheduler-Token': 'schedule'})
-            self.assertEqual(tick['generated_candidates'], 1)
+            self.assertEqual(tick['generated_candidates'], 0)
             self.assertTrue(tick['simulated'])
             self.assertEqual(len(tick['source_results']), 1)
+            self.assertEqual(Handler.state.proactive_store.list_candidates(), [])
             event_id = created['event']['id']
             updated = post(f'/api/proactive/events/{event_id}', {'action': 'update', 'changes': {'message': '新提醒'}}, {'X-Proactive-Admin-Token': 'admin'})
             self.assertEqual(updated['event']['revision'], 2)
@@ -106,6 +108,57 @@ class ManualEventTests(unittest.TestCase):
             self.assertEqual(cancelled['event']['status'], 'cancelled')
             self.assertEqual(post('/api/proactive/tick', {'candidates': []}, {'X-Scheduler-Token': 'schedule'})['source_results'], [])
             self.assertEqual(post('/api/command', {'device_id': 'phone', 'action': 'noop'}, {'X-Auth-Token': 'device'})['command']['action'], 'noop')
+        finally:
+            if server:
+                server.shutdown()
+                server.server_close()
+            for key, value in old.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_simulated_tick_is_a_read_only_preview(self):
+        old = {k: os.environ.get(k) for k in ('LINJIAN_DATA_DIR', 'LINJIAN_TOKEN', 'LINJIAN_SCHEDULER_TOKEN', 'LINJIAN_PROACTIVE_ADMIN_TOKEN', 'LINJIAN_PROACTIVE_SEND_ENABLED')}
+        os.environ.update({'LINJIAN_DATA_DIR': self.tmp.name, 'LINJIAN_TOKEN': 'device', 'LINJIAN_SCHEDULER_TOKEN': 'schedule', 'LINJIAN_PROACTIVE_ADMIN_TOKEN': 'admin', 'LINJIAN_PROACTIVE_SEND_ENABLED': 'false'})
+        server = None
+        try:
+            Handler.state = State()
+            store = Handler.state.proactive_store
+            now = datetime.now(timezone.utc)
+            earlier = now - timedelta(days=3)
+            policy = {'enabled': True, 'daily_max': 2, 'cooldown_minutes': 0}
+            expired = {'device_id': 'expired-phone', 'event_id': 'expired', 'topic': 'expired', 'title': '过期', 'message': '过期', 'expires_at': (now - timedelta(days=1)).isoformat()}
+            dispatched = {'device_id': 'dispatched-phone', 'event_id': 'dispatched', 'topic': 'dispatched', 'title': '派发', 'message': '派发', 'expires_at': (now + timedelta(days=1)).isoformat()}
+            run_candidate(store, expired, policy, earlier, simulate=False)
+            run_candidate(store, dispatched, policy, earlier, simulate=False)
+            store.claim('dispatched-phone', 'timed-out-command', earlier.isoformat())
+            source_event = Handler.state.manual_event_source.create({
+                'device_id': 'phone', 'title': '事项', 'message': '预演',
+                'due_at': (now - timedelta(minutes=1)).isoformat(),
+                'expires_at': (now + timedelta(days=1)).isoformat(),
+            })
+            self.assertEqual(store.get('expired-phone', 'expired', 'expired')['status'], 'queued')
+            self.assertEqual(store.get('dispatched-phone', 'dispatched', 'dispatched')['status'], 'dispatched')
+            self.assertEqual(store.list_candidates(), [])
+
+            server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            request = Request(
+                f'http://127.0.0.1:{server.server_port}/api/proactive/tick',
+                json.dumps({'simulate': True, 'candidates': []}).encode(),
+                {'Content-Type': 'application/json', 'X-Scheduler-Token': 'schedule'},
+            )
+            tick = json.load(urlopen(request))
+
+            self.assertTrue(tick['simulated'])
+            self.assertEqual(tick['generated_candidates'], 0)
+            self.assertEqual(len(tick['source_results']), 1)
+            self.assertEqual(tick['source_results'][0]['event_id'], source_event['id'])
+            self.assertEqual(store.get('expired-phone', 'expired', 'expired')['status'], 'queued')
+            self.assertEqual(store.get('dispatched-phone', 'dispatched', 'dispatched')['status'], 'dispatched')
+            self.assertEqual(store.list_candidates(), [])
+            self.assertEqual(len(store.list_attempts(store.get('dispatched-phone', 'dispatched', 'dispatched')['id'])), 1)
         finally:
             if server:
                 server.shutdown()

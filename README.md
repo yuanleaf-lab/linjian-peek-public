@@ -22,7 +22,7 @@ PostgreSQL schema 不会随服务启动自动创建。准备好**单独授权的
 {"device_id":"android-phone","title":"考试","message":"记得带准考证","due_at":"2026-12-01T08:00:00+08:00","expires_at":"2026-12-01T09:00:00+08:00"}
 ```
 
-`POST /api/proactive/events/{id}` 使用 `{"action":"update","changes":{"message":"新的提醒内容"}}` 修改，或 `{"action":"cancel"}` 取消。修改会增加修订号。两个接口都不会直接发送通知。调度入口仍为 `POST /api/proactive/tick`，使用 `X-Scheduler-Token`；不传 `candidates` 或传空数组时也会扫描手动事项。默认 `simulate: true`：扫描会持久化候选，但不入队或发送。响应中的 `generated_candidates` 是新候选数，`source_results` 是事项候选的规则结果，`results` 是直接提交候选的旧接口结果。真实入队仍需显式 `simulate: false` 且 `LINJIAN_PROACTIVE_SEND_ENABLED=true`；默认关闭。
+`POST /api/proactive/events/{id}` 使用 `{"action":"update","changes":{"message":"新的提醒内容"}}` 修改，或 `{"action":"cancel"}` 取消。修改会增加修订号。两个接口都不会直接发送通知。调度入口仍为 `POST /api/proactive/tick`，使用 `X-Scheduler-Token`；不传 `candidates` 或传空数组时也会检查手动事项。默认 `simulate: true` 是纯预演：只读取事项、策略和已有消息来返回规则判断，不创建候选或消息，也不会更新过期、超时或派发状态。预演时 `generated_candidates` 固定为 `0`，`source_results` 按事项返回预演结果，`results` 是直接提交候选的预演结果。真实入队仍需显式 `simulate: false` 且 `LINJIAN_PROACTIVE_SEND_ENABLED=true`；默认关闭。
 
 目前没有内置定时触发器；没有 tick 就不会按时扫描。SQLite 仍只适合本地开发及单实例试运行。测试命令：`python -m unittest discover -s server/tests -v`，测试只使用临时 SQLite 和本地 HTTP，不连接真实设备。
 
