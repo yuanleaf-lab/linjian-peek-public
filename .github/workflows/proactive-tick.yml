@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      test_candidates:
+        description: "Run synthetic candidate checks (simulation only)"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -17,6 +23,7 @@ jobs:
         env:
           LINJIAN_SERVER_URL: ${{ secrets.LINJIAN_SERVER_URL }}
           LINJIAN_SCHEDULER_TOKEN: ${{ secrets.LINJIAN_SCHEDULER_TOKEN }}
+          TEST_CANDIDATES: ${{ github.event_name == 'workflow_dispatch' && inputs.test_candidates == true }}
         shell: bash
         run: |
           set -euo pipefail
@@ -29,6 +36,31 @@ jobs:
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
           tick_url="${LINJIAN_SERVER_URL%/}/api/proactive/tick"
+          request_payload='{"simulate":true}'
+
+          if [[ "${TEST_CANDIDATES}" == "true" ]]; then
+            run_suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            candidates_json="$(jq -cn \
+              --arg device_id "preview-test-${run_suffix}" \
+              --arg run_suffix "${run_suffix}" \
+              '[
+                {
+                  device_id: $device_id,
+                  event_id: ("preview-send-" + $run_suffix),
+                  topic: ("preview-send-" + $run_suffix),
+                  message: "READ_ONLY_TEST",
+                  expires_at: "2099-12-31T23:59:59Z"
+                },
+                {
+                  device_id: $device_id,
+                  event_id: ("preview-skip-" + $run_suffix),
+                  topic: ("preview-skip-" + $run_suffix),
+                  message: "READ_ONLY_TEST",
+                  expires_at: "2000-01-01T00:00:00Z"
+                }
+              ]')"
+            request_payload="$(jq -cn --argjson candidates "$candidates_json" '{simulate:true,candidates:$candidates}')"
+          fi
 
           if ! http_status="$(curl --silent --show-error \
               --connect-timeout 10 --max-time 30 \
@@ -36,7 +68,7 @@ jobs:
               --request POST "$tick_url" \
               --header 'Content-Type: application/json' \
               --header "X-Scheduler-Token: ${LINJIAN_SCHEDULER_TOKEN}" \
-              --data '{"simulate":true}')"; then
+              --data "$request_payload")"; then
             echo "::error::The proactive tick request could not be completed."
             exit 1
           fi
