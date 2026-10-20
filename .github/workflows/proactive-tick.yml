@@ -43,7 +43,6 @@ jobs:
 
           if [[ "$http_status" != "200" ]]; then
             echo "::error::Proactive tick returned HTTP ${http_status}."
-            cat "$response_file"
             exit 1
           fi
 
@@ -52,4 +51,26 @@ jobs:
             exit 1
           fi
 
+          safe_stat() {
+            local label="$1"
+            local filter="$2"
+            local value
+            value="$(jq --raw-output "$filter" "$response_file" 2>/dev/null || true)"
+            if [[ -n "$value" && "$value" != "null" ]]; then
+              printf '%s: %s\n' "$label" "$value"
+            else
+              printf '%s: unavailable\n' "$label"
+            fi
+          }
+
           echo "Proactive tick simulation completed successfully (HTTP 200)."
+          echo "Proactive tick preview statistics:"
+          safe_stat "generated_candidates" 'if (.generated_candidates | type) == "number" then .generated_candidates else empty end'
+          safe_stat "due_source_checks" 'if (.source_results | type) == "array" then (.source_results | length) else empty end'
+          safe_stat "direct_candidate_checks" 'if (.results | type) == "array" then (.results | length) else empty end'
+          safe_stat "source_decision_send" 'if (.source_results | type) == "array" then (.source_results | map(select(.decision == "send")) | length) else empty end'
+          safe_stat "source_decision_defer" 'if (.source_results | type) == "array" then (.source_results | map(select(.decision == "defer")) | length) else empty end'
+          safe_stat "source_decision_skip" 'if (.source_results | type) == "array" then (.source_results | map(select(.decision == "skip")) | length) else empty end'
+          safe_stat "direct_decision_send" 'if (.results | type) == "array" then (.results | map(select(.decision == "send")) | length) else empty end'
+          safe_stat "direct_decision_defer" 'if (.results | type) == "array" then (.results | map(select(.decision == "defer")) | length) else empty end'
+          safe_stat "direct_decision_skip" 'if (.results | type) == "array" then (.results | map(select(.decision == "skip")) | length) else empty end'
