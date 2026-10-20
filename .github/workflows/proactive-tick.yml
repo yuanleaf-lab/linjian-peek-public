@@ -1,0 +1,55 @@
+name: Proactive tick preview
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proactive-tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Run read-only proactive tick
+        env:
+          LINJIAN_SERVER_URL: ${{ secrets.LINJIAN_SERVER_URL }}
+          LINJIAN_SCHEDULER_TOKEN: ${{ secrets.LINJIAN_SCHEDULER_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${LINJIAN_SERVER_URL}" || -z "${LINJIAN_SCHEDULER_TOKEN}" ]]; then
+            echo "::error::LINJIAN_SERVER_URL or LINJIAN_SCHEDULER_TOKEN is not configured."
+            exit 1
+          fi
+
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          tick_url="${LINJIAN_SERVER_URL%/}/api/proactive/tick"
+
+          if ! http_status="$(curl --silent --show-error \
+              --connect-timeout 10 --max-time 30 \
+              --output "$response_file" --write-out '%{http_code}' \
+              --request POST "$tick_url" \
+              --header 'Content-Type: application/json' \
+              --header "X-Scheduler-Token: ${LINJIAN_SCHEDULER_TOKEN}" \
+              --data '{"simulate":true}')"; then
+            echo "::error::The proactive tick request could not be completed."
+            exit 1
+          fi
+
+          if [[ "$http_status" != "200" ]]; then
+            echo "::error::Proactive tick returned HTTP ${http_status}."
+            cat "$response_file"
+            exit 1
+          fi
+
+          if ! jq --exit-status '.ok == true and .simulated == true' "$response_file" >/dev/null; then
+            echo "::error::Proactive tick returned an unexpected success payload."
+            exit 1
+          fi
+
+          echo "Proactive tick simulation completed successfully (HTTP 200)."
